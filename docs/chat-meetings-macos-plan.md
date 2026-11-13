@@ -1,13 +1,13 @@
 # Finish chat with meetings on macOS
 
-Status: refreshed on 2026-11-13 after pulling upstream v0.5.0. This controller has not started a HumanLayer implementation session; its configured login needs renewal.
+Status: selected-meeting slice implemented directly on 2026-11-13. Native UI acceptance remains pending after computer automation failed. The full cross-meeting plan is not complete.
 Repository: https://github.com/agonza1/meetily
 Branch: enhance/chat-meetings-macos
 Current upstream baseline: 9e50dc245157de376b1a9a5b8dcd78a9cde3f2e6 (v0.5.0 plus build/CI fixes). The original fork baseline was 07c4dfd45361bb6776916a0d46f493dda447f471; its planning commit is preserved.
 
 ## Outcome
 
-Finish the existing open-source chat contribution for an Apple Silicon macOS first release in this fork. Keep Sidea separate. Use the configured HumanLayer installation and its stock project/task/session workflow for implementation, verification and PR delivery. Preserve repository and workflow human checkpoints.
+Finish the existing open-source chat contribution for an Apple Silicon macOS first release in this fork. Keep Sidea separate. The user subsequently authorized skipping HumanLayer, which was an optional execution workflow. Continue directly in this fork with appropriate tests, whole-diff review and repository delivery checkpoints. Sidea remains separate.
 
 ## Starting point and review
 
@@ -23,7 +23,7 @@ These observations rank adoption readiness; they do not predict upstream maintai
 
 Adopt #810 as attributed source for a working selected-meeting chat, with the basic safety fixes below. This is implementation in this fork, not a competing upstream submission. Upstream contributions target devtest and require coordination; this task does not authorize contacting contributors or opening an upstream PR.
 
-1. Use HumanLayer's existing project/task/session flow and an isolated workspace. After sign-in, inspect the exact repository project and existing tasks before creating or resuming one. Use the current approved host and provider settings. Do not launch a second worker for the same slice.
+1. Work directly on the existing Meetily branch under the latest user authorization to skip HumanLayer. Preserve the fork boundary and avoid concurrent writers. No HumanLayer task or login is required for this slice.
 2. Adapt the reviewed contribution onto the current v0.5.0 baseline while preserving attribution. Resolve the sidebar conflict by retaining the new FeedbackLink and feedback-to-settings navigation as well as the chat entry point. Preserve recording and import controls.
 3. Require an explicit selected meeting for this first slice. Do not expose the incomplete all-meetings sampling mode as a finished search feature. Opening the sidebar chat without a selected meeting should prompt the user to choose one. Relevant cross-meeting retrieval is a subsequent slice.
 4. Clear or restore only the selected scope's in-memory chat when scope changes. Bind request/results to that scope and invalidate late responses on scope change, reset, close and unmount. An aborted or stale answer must not appear in a later conversation. Durable per-scope history is a separate slice.
@@ -55,7 +55,7 @@ Transcription is independent: fresh onboarding selects parakeet-tdt-0.6b-v3-int8
 
 ## Implementation sequence
 
-1. In HumanLayer, create/reuse the exact project bound to agonza1/meetily, inspect existing tasks, and create or reuse an accepted task for the bounded slice, with an isolated workspace and task-specific branch. Import the focused #810 contribution with authorship preserved onto current main. Keep unrelated cleanup outside this change.
+1. Use the existing agonza1/meetily branch and accepted bounded-slice scope. HumanLayer is optional and skipped under the latest user instruction. Import the focused #810 contribution with authorship preserved onto current main. Keep unrelated cleanup outside this change.
 2. Fix scope isolation, stale-result handling, UTF-8 truncation, content logging and model selection. Show actual provider/model and local versus external processing clearly. Chat must not introduce an automatic cloud fallback.
 3. Implement bounded, question-relevant transcript chunk selection over the requested meeting set using existing local database/search facilities where practical. Return structured source meeting IDs and timestamps and let the user open the supporting transcript. Disclose limited coverage; return an unsupported answer when evidence is insufficient.
 4. Add history keyed by explicit meeting/all-meetings scope using a reviewed SQLite migration and existing persistence conventions. Scope transitions start or restore only that scope's history. Define reset/delete/meeting-deletion behavior; do not persist failed/incomplete assistant messages as completed answers.
@@ -86,6 +86,14 @@ The fork main branch was fast-forwarded to upstream 9e50dc245157de376b1a9a5b8dcd
 - Rust/native tests, real model inference and Tauri runtime acceptance were not run. Passing frontend checks do not validate the unimported chat PR or complete the selected-meeting slice.
 - The HumanLayer CLI still reports Not logged in. A fresh device authorization request expired without completing sign-in; no task or worker was created by this controller.
 
-## Handoff blocker
+## Selected-meeting implementation status
 
-The configured HumanLayer API is reachable, but the stock CLI cannot refresh its saved login and reports Not logged in. This controller has not created a HumanLayer task/session. Existing remote task state could not be inspected during this recheck. Reauthenticate the configured installation, then inspect projects/tasks before publishing this scope. Do not select another installation or bypass the managed workflow.
+The implementation adapts the scope/UI idea from Muhammed Shareef M (shareefmx), PR #810 at b86d08999efbd6ee6e8257f764f9a837fc6de7de. It does not import the unsafe all-meetings sampling, fuzzy model lookup, silent model changes, screenshots or shared provider rewrites.
+
+Implemented: sidebar and meeting entry points; one-meeting-only native command; scoped transient history; stale request/configuration/draft protection; UTF-8-safe bounded context; no new meeting-content logs; credential-free configuration display; explicit confirmation for configured network providers; read-only model choice; safe Markdown without remote images or active model-generated links; settings deep link.
+
+Verification: native model helper build and Apple Silicon Tauri app bundle build passed. Six context tests and five native SQLite/configuration tests passed inside the full macOS crate. All 81 frontend tests passed, including 16 chat tests and the late-submit draft race. Production Next.js build and TypeScript validation passed. See the slice report for commands and final limitations.
+
+Direct local helper inference with the supported Qwen 3.5 2B Q4_K_M model answered a synthetic checklist question correctly in 8.65 seconds including initial load. Native UI automation could not bind the isolated test app and expired its continuation. No visual or native app-to-model interaction success is claimed. Synthetic test data and a small supported local model were prepared only for a separate test identity; existing Meetily and Sidea profiles were not used.
+
+Remaining: native UI acceptance, production cancellation of model generation, question-relevant transcript retrieval, structured source validation, durable history, and later cross-meeting scope. Closing/resetting currently discards late UI output but may leave the underlying generation running until completion. The code is suitable for a draft review, not a release-readiness claim.
