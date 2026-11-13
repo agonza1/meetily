@@ -62,7 +62,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
     const version = epoch.current;
     const configuration = snapshot.configuration;
     busy.current = true;
-    setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { role: 'user', content: query }] }));
+    setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
     try {
       const response = await transport.ask({
         query, meetingId, historyMeetingId: meetingId,
@@ -74,7 +74,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
         throw new Error('Unexpected response scope');
       }
       setSnapshot(current => ({ ...current, messages: [...current.messages, {
-        role: 'assistant', content: response.answer,
+        role: 'assistant', content: response.answer, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
         model: `${response.provider} · ${response.model}`, contextTruncated: response.contextTruncated,
       }] }));
     } catch (error) {

@@ -60,7 +60,7 @@ Transcription is independent: fresh onboarding selects parakeet-tdt-0.6b-v3-int8
 3. Implement bounded, question-relevant transcript chunk selection over the requested meeting set using existing local database/search facilities where practical. Return structured source meeting IDs and timestamps and let the user open the supporting transcript. Disclose limited coverage; return an unsupported answer when evidence is insufficient.
 4. Add history keyed by explicit meeting/all-meetings scope using a reviewed SQLite migration and existing persistence conventions. Scope transitions start or restore only that scope's history. Define reset/delete/meeting-deletion behavior; do not persist failed/incomplete assistant messages as completed answers.
 5. Complete the macOS UI: keyboard-friendly chat, source navigation, loading/error/retry states and cancellation. Preserve recording/transcription workflows and existing explicit model settings.
-6. Run appropriate frontend and Rust checks, whole-diff self-review and native Apple Silicon validation. Produce a fork PR through the HumanLayer workflow and report its actual head/checks/findings. No release, installer replacement or upstream PR is included in this task. Standing delivery authorization applies to the fork after required verification and current-head review; retain configured human checkpoints.
+6. Run appropriate frontend and Rust checks, whole-diff self-review and native Apple Silicon validation. Produce a fork PR directly (HumanLayer is skipped under the latest user instruction) and report its actual head/checks/findings. No release, installer replacement or upstream PR is included in this task. Standing delivery authorization applies to the fork after required verification and current-head review; retain configured human checkpoints.
 
 ## Acceptance evidence
 
@@ -74,7 +74,7 @@ Transcription is independent: fresh onboarding selects parakeet-tdt-0.6b-v3-int8
 - New chat tests pass alongside affected existing tests; report native build/run evidence separately from author claims or mock results.
 - On Apple Silicon, measure cold/warm time to first visible output and completion, peak memory and cancel behavior for available 2B/4B models. Record hardware and model identity. No unsupported speed/quality claim.
 
-## November 13 baseline verification
+## Historical November 13 baseline verification (before slice 1)
 
 The fork main branch was fast-forwarded to upstream 9e50dc245157de376b1a9a5b8dcd78a9cde3f2e6. The integration branch preserves its existing plan commit and merges that upstream baseline without conflicts. Its only fork-specific file is this plan; #810 has not been applied to the working tree.
 
@@ -88,11 +88,11 @@ The fork main branch was fast-forwarded to upstream 9e50dc245157de376b1a9a5b8dcd
 
 ## Selected-meeting implementation status
 
-The implementation adapts the scope/UI idea from Muhammed Shareef M (shareefmx), PR #810 at b86d08999efbd6ee6e8257f764f9a837fc6de7de. It does not import the unsafe all-meetings sampling, fuzzy model lookup, silent model changes, screenshots or shared provider rewrites.
+The implementation now imports the actual AskMeetingsModal presentation from Muhammed Shareef M (shareefmx), PR #810 at b86d08999efbd6ee6e8257f764f9a837fc6de7de, rather than the earlier minimal replacement view. Chat bubbles, quick suggestions, answer copy, timestamps, loading state and the model/settings footer reuse that source. Our scope-safe hook and native layer remain underneath; this is not a wholesale cherry-pick of the 14-file PR. The upstream head was rechecked and remains open, unmerged and conflicting with main. It does not import the unsafe all-meetings sampling, fuzzy model lookup, silent model changes, screenshots or shared provider rewrites.
 
 Implemented: sidebar and meeting entry points; one-meeting-only native command; scoped transient history; stale request/configuration/draft protection; UTF-8-safe bounded context; no new meeting-content logs; credential-free configuration display; explicit confirmation for configured network providers; read-only model choice; safe Markdown without remote images or active model-generated links; settings deep link.
 
-Verification: native model helper build and Apple Silicon Tauri app bundle build passed. Six context tests and five native SQLite/configuration tests passed inside the full macOS crate. All 81 frontend tests passed, including 16 chat tests and the late-submit draft race. Production Next.js build and TypeScript validation passed. See the slice report for commands and final limitations.
+Verification: native model helper build and Apple Silicon Tauri app bundle build passed. Six context tests and five native SQLite/configuration tests passed inside the full macOS crate. All 83 frontend tests passed, including 18 chat tests and the late-submit draft race. Production Next.js build and TypeScript validation passed. See the slice report for commands and final limitations.
 
 Direct local helper inference with the supported Qwen 3.5 2B Q4_K_M model answered a synthetic checklist question correctly in 8.65 seconds including initial load. Native UI automation could not bind the isolated test app and expired its continuation. No visual or native app-to-model interaction success is claimed. Synthetic test data and a small supported local model were prepared only for a separate test identity; existing Meetily and Sidea profiles were not used.
 

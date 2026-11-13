@@ -7,6 +7,7 @@ export type ChatConfiguration = {
 export type ChatMessage = {
   role: 'user' | 'assistant';
   content: string;
+  timestamp?: string;
   model?: string;
   contextTruncated?: boolean;
 };

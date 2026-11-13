@@ -1,6 +1,6 @@
 # Selected-meeting chat: macOS slice 1
 
-Select **Ask a meeting** in the sidebar, choose a meeting, and ask a question. Meeting details also exposes **Ask meeting**. The dialog uses transcript excerpts from the selected meeting only. **Open transcript** lets the user check the original text. The model/provider come from the saved Summary settings; chat does not choose a new default or change those settings.
+Select **Ask a meeting** in the sidebar, choose a meeting, and ask a question. Meeting details also exposes **Ask meeting**. The dialog reuses the actual AskMeetingsModal presentation from upstream #810: chat bubbles, quick prompts, answer copy, timestamps, loading state and the model/settings footer. It uses transcript excerpts from the selected meeting only. **Open transcript** lets the user check the original text. The model/provider come from the saved Summary settings; chat does not choose a new default or change those settings.
 
 Built-in AI runs on-device. Other configured provider endpoints require explicit confirmation for each question. Credentials stay in the native configuration layer. A configuration version check blocks requests if the destination or model changed after the dialog loaded.
 
@@ -14,15 +14,16 @@ Built-in AI runs on-device. Other configured provider endpoints require explicit
 
 ## Attribution
 
-Adapted from [Muhammed Shareef M / shareefmx, PR #810](https://github.com/Zackriya-Solutions/meetily/pull/810), head b86d08999efbd6ee6e8257f764f9a837fc6de7de, under the repository's MIT license. This fork implementation deliberately limits scope and replaces the original history/model handling. No upstream contribution or contributor messaging is included in this delivery.
+Adapted from [Muhammed Shareef M / shareefmx, PR #810](https://github.com/Zackriya-Solutions/meetily/pull/810), head b86d08999efbd6ee6e8257f764f9a837fc6de7de, under the repository's MIT license. The AskMeetingsModal.tsx presentation is imported from that pinned source and connected to this fork's tested hook/native implementation. The earlier minimal replacement view has been removed. The UI keeps the original styling and controls, adds Radix focus/escape handling, and retains transcript navigation, provider confirmation and safe Markdown. The duration shortcut is replaced by a topic question because this bounded context does not supply duration metadata. This is a focused adaptation, not a cherry-pick of all 14 files: cross-meeting sampling and the original history/model handling are deliberately excluded. No upstream contribution or contributor messaging is included in this delivery.
 
 ## Verification
 
 On Apple Silicon macOS, Rust 1.99.1 and Bun 1.3.14:
 
-- `bun test tests` from frontend: 81 passed, 0 failed, including 16 chat tests and the existing 65-test baseline.
-- `node node_modules/typescript/bin/tsc --noEmit --incremental false`: passed before the final UI-only race regression; the subsequent production Next build also type-checked that revision.
+- `bun test tests` from frontend: 83 passed, 0 failed, including 18 chat tests and the existing 65-test baseline.
+- `node node_modules/typescript/bin/tsc --noEmit --incremental false`: passed after the initial UI import; the final production Next build also type-checked the final UI changes.
 - `NEXT_TELEMETRY_DISABLED=1 node node_modules/next/dist/bin/next build`: passed on the final application code, 12 static pages.
+- Native Rust checks below were run at f5c23d89088732ea630b93df3739571b0597bebb. This UI-reuse revision changes no native source, so those results remain applicable with that original revision.
 - `cargo build --locked -p llama-helper`: passed.
 - `cargo test --locked -p meetily --lib summary::chat_context::tests`: 6 passed.
 - `cargo test --locked -p meetily --lib summary::ask_ai::tests`: 5 passed, using real in-memory SQLite migrations and synthetic meetings.
