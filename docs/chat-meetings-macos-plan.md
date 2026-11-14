@@ -1,9 +1,9 @@
 # Finish chat with meetings on macOS
 
-Status: selected-meeting slice implemented directly on 2026-11-13. Native UI acceptance remains pending after computer automation failed. The full cross-meeting plan is not complete.
+Status: macOS notes/chat MVP implementation extended on 2026-11-14. Native model acceptance and automated checks are recorded in chat-meetings-macos-mvp.md. Visual Tauri acceptance remains pending because computer automation cannot bind the isolated app. Full cross-meeting work is deferred.
 Repository: https://github.com/agonza1/meetily
 Branch: enhance/chat-meetings-macos
-Current upstream baseline: 9e50dc245157de376b1a9a5b8dcd78a9cde3f2e6 (v0.5.0 plus build/CI fixes). The original fork baseline was 07c4dfd45361bb6776916a0d46f493dda447f471; its planning commit is preserved.
+Current upstream baseline: 2166bc6fe3ba585580f3f94b79cda7e7b91deb76 (v0.5.0 plus upstream build/docs/Linux installer fixes).
 
 ## Outcome
 
@@ -45,7 +45,7 @@ Source: [backend at reviewed head](https://github.com/shareefmx/meetily/blob/b86
 7. The command can silently switch the built-in model and save the replacement globally. Its size threshold is not an integrity check. Use existing verified model management, fail clearly for unavailable models and avoid changing user settings as a side effect of asking a question.
 8. No dedicated chat test files were added. The UI waits for a full response; generation cancellation and macOS end-to-end behavior remain unverified.
 
-## Model behavior
+## Model behavior at the original slice baseline
 
 Chat inherits the saved summary provider/model; it does not have a separate authoritative default. #810 initially labels the UI Built-in AI / Qwen 3.5 4B before loading saved settings, which can be misleading.
 
@@ -97,3 +97,8 @@ Verification: native model helper build and Apple Silicon Tauri app bundle build
 Direct local helper inference with the supported Qwen 3.5 2B Q4_K_M model answered a synthetic checklist question correctly in 8.65 seconds including initial load. Native UI automation could not bind the isolated test app and expired its continuation. No visual or native app-to-model interaction success is claimed. Synthetic test data and a small supported local model were prepared only for a separate test identity; existing Meetily and Sidea profiles were not used.
 
 Remaining: native UI acceptance, production cancellation of model generation, question-relevant transcript retrieval, structured source validation, durable history, and later cross-meeting scope. Closing/resetting currently discards late UI output but may leave the underlying generation running until completion. The code is suitable for a draft review, not a release-readiness claim.
+
+
+## November 14 macOS MVP
+
+See [MVP implementation and evidence](chat-meetings-macos-mvp.md). This reuses main's recording/transcription, notes editor, standard template, summary chunk/cache pipeline, model manager and persistent helper. It adds local question-relevant retrieval, validated exact quotations with SQLite timestamps, request cancellation and pinned text-only Gemma 4 options. On macOS, fresh onboarding recommends E2B through 8 GiB and E4B above 8 GiB; saved selections remain authoritative. Physical 8-GB qualification remains pending. No RapidFuzz, embeddings, media projector, new runtime or storage migration is included. Cross-meeting search and durable chat history remain later work.

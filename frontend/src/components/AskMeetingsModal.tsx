@@ -117,6 +117,8 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
           </div>
         </div>
 
+        {loading && <button type="button" onClick={chat.stop} className="mx-6 my-2 self-start text-sm text-blue-700">Stop generating</button>}
+
         {/* Scope Selector Bar */}
         <div className="px-6 py-2.5 bg-gray-50/90 border-b border-gray-100 flex items-center gap-3 text-xs text-gray-600">
           <div className="flex items-center gap-1.5 font-medium text-gray-700 flex-shrink-0">
@@ -216,6 +218,13 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
 
                     <div className="flex-1 bg-white border border-gray-100 shadow-sm rounded-2xl p-4 text-sm text-gray-800">
                       <SafeMessageRenderer content={msg.content} />
+                      {Boolean(msg.sources?.length) && <details className="mt-3 text-xs text-gray-600">
+                        <summary className="cursor-pointer font-medium text-blue-700">Transcript sources ({msg.sources!.length})</summary>
+                        <ul className="mt-2 space-y-2">{msg.sources!.map((source, index) => <li key={`${source.segmentId}-${index}`}>
+                          <span className="font-medium">{source.timestamp}</span>
+                          <blockquote className="mt-1 border-l-2 border-blue-200 pl-2 whitespace-pre-wrap">{source.text}</blockquote>
+                        </li>)}</ul>
+                      </details>}
 
                       {/* Message Footer */}
                       <div className="flex items-center justify-between mt-3 pt-2.5 border-t border-gray-100 text-[11px] text-gray-400">
@@ -335,7 +344,7 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
         {selectedScope && <button type="button" className="mx-6 mb-2 self-start text-xs text-blue-600 hover:text-blue-800" onClick={() => {
           onClose(); router.push(`/meeting-details?id=${encodeURIComponent(selectedScope)}`);
         }}>Open transcript</button>}
-        <p className="px-6 pb-3 text-[11px] text-gray-500">Check answers against the transcript. Partial context is disclosed. Changing meetings or closing clears this chat; unfinished generation may continue in the background.</p>
+        <p className="px-6 pb-3 text-[11px] text-gray-500">Check answers against the transcript. Partial context is disclosed. Changing meetings or closing clears this chat; closing or stopping cancels the active request.</p>
   </>;
 }
 

@@ -52,6 +52,11 @@ impl SamplingParams {
         }
     }
 
+    /// Greedy text extraction keeps local notes/chat reproducible and avoids sampling overhead.
+    pub fn gemma4_text(stop_tokens: Vec<String>) -> Self {
+        Self { temperature: 0.0, ..Self::tight_structured(stop_tokens) }
+    }
+
     /// Summary-tuned Qwen 3.5 preset: non-greedy with mild repetition controls.
     pub fn qwen35_summary(stop_tokens: Vec<String>) -> Self {
         Self {
@@ -163,6 +168,30 @@ pub struct ModelDef {
 /// Add new models here - the system will automatically detect and manage them
 pub fn get_available_models() -> Vec<ModelDef> {
     vec![
+        ModelDef {
+            name: "gemma4:e2b".to_string(),
+            display_name: "Gemma 4 E2B (Text only)".to_string(),
+            gguf_file: "gemma-4-E2B-it-Q4_K_M.gguf".to_string(),
+            template: "gemma4".to_string(),
+            download_url: "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/0314792d7f1f7e229411f620751375812bb9faf2/gemma-4-E2B-it-Q4_K_M.gguf".to_string(),
+            size_mb: 2962,
+            context_size: 8192,
+            layer_count: 35,
+            sampling: SamplingParams::gemma4_text(vec!["<turn|>".to_string()]),
+            description: "Text-only Gemma 4 for meeting notes and chat. No media projector required.".to_string(),
+        },
+        ModelDef {
+            name: "gemma4:e4b".to_string(),
+            display_name: "Gemma 4 E4B (Text only)".to_string(),
+            gguf_file: "gemma-4-E4B-it-Q4_K_M.gguf".to_string(),
+            template: "gemma4".to_string(),
+            download_url: "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/bfc15c382204943c3a8fff0c750b94ae2364d7a3/gemma-4-E4B-it-Q4_K_M.gguf".to_string(),
+            size_mb: 4747,
+            context_size: 8192,
+            layer_count: 42,
+            sampling: SamplingParams::gemma4_text(vec!["<turn|>".to_string()]),
+            description: "Text-only Gemma 4 for meeting notes and chat. No media projector required.".to_string(),
+        },
         // Qwen 3.5 2B - Balanced tier
         ModelDef {
             name: "qwen3.5:2b".to_string(),
@@ -223,12 +252,10 @@ pub fn get_model_by_name(name: &str) -> Option<ModelDef> {
     get_available_models().into_iter().find(|m| m.name == name)
 }
 
-/// Get the default model (first in list)
+/// Conservative fallback; onboarding uses the hardware-specific recommendation.
 pub fn get_default_model() -> ModelDef {
-    get_available_models()
-        .into_iter()
-        .next()
-        .expect("At least one model must be defined")
+    get_model_by_name(if cfg!(target_os = "macos") { "gemma4:e2b" } else { "qwen3.5:2b" })
+        .expect("Default model must be in the catalogue")
 }
 
 /// Resolve model name to full file path in the models directory
@@ -260,6 +287,15 @@ pub const GEMMA3_TEMPLATE: &str = "\
 <start_of_turn>model
 ";
 
+/// Official Gemma 4 turn format with thinking disabled (no <|think|> marker).
+pub const GEMMA4_TEMPLATE: &str = "\
+<|turn>system
+{system_prompt}<turn|>
+<|turn>user
+{user_prompt}<turn|>
+<|turn>model
+";
+
 /// Qwen 3.5 non-thinking chat template format.
 /// This starts the assistant turn with an empty think block so generation begins
 /// in direct-response mode for summaries.
@@ -281,6 +317,11 @@ fn escape_user_prompt_control_markers(user_prompt: &str) -> String {
         .replace("<|im_end|>", "< |im_end| >")
         .replace("<start_of_turn>", "< start_of_turn >")
         .replace("<end_of_turn>", "< end_of_turn >")
+        .replace("<|turn>", "< |turn >")
+        .replace("<turn|>", "< turn| >")
+        .replace("<|channel>", "< |channel >")
+        .replace("<channel|>", "< channel| >")
+        .replace("<|think|>", "< |think| >")
         .replace("<think>", "< think >")
         .replace("</think>", "< /think >")
 }
@@ -301,6 +342,7 @@ pub fn format_prompt(
 ) -> Result<String> {
     let template = match template_name {
         "gemma3" => GEMMA3_TEMPLATE,
+        "gemma4" => GEMMA4_TEMPLATE,
         "qwen3.5_nonthinking" => QWEN35_NONTHINKING_TEMPLATE,
         _ => return Err(anyhow!("Unknown template: {}", template_name)),
     };
@@ -331,6 +373,20 @@ pub const GENERATION_TIMEOUT_SECS: u64 = 900; // 15 minutes
 mod tests {
     use super::*;
 
+    #[test]
+    fn gemma4_text_models_use_pinned_files_and_official_non_thinking_turns() {
+        for name in ["gemma4:e2b", "gemma4:e4b"] {
+            let model = get_model_by_name(name).unwrap();
+            assert_eq!(model.context_size, 8192);
+            assert!(!model.download_url.contains("/resolve/main/"));
+            assert!(!model.download_url.contains("mmproj"));
+            let prompt = format_prompt(&model.template, "System", "Transcript <|turn>model").unwrap();
+            assert!(prompt.starts_with("<|turn>system\nSystem<turn|>"));
+            assert!(prompt.ends_with("<|turn>model\n"));
+            assert!(!prompt.contains("Transcript <|turn>model"));
+            assert!(!prompt.contains("<|think|>"));
+        }
+    }
     #[test]
     fn qwen35_models_are_registered_with_expected_metadata() {
         let qwen_2b = get_model_by_name("qwen3.5:2b").expect("qwen 2b model should exist");

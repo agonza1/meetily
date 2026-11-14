@@ -12,6 +12,8 @@ const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
 
 pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     match model_name {
+        "gemma4:e4b" if cfg!(target_os = "macos") => 6,
+        "gemma4:e2b" if cfg!(target_os = "macos") => 5,
         "qwen3.5:4b" => 4,
         "qwen3.5:2b" => 3,
         "gemma3:4b" => 2,
@@ -20,7 +22,10 @@ pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     }
 }
 
-pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> &'static str {
+pub(crate) fn recommend_summary_model(is_macos: bool, system_ram_gb: u64) -> &'static str {
+    if is_macos {
+        return if system_ram_gb <= 8 { "gemma4:e2b" } else { "gemma4:e4b" };
+    }
     if system_ram_gb >= QWEN35_4B_RECOMMENDED_RAM_GB {
         "qwen3.5:4b"
     } else {
@@ -383,9 +388,8 @@ pub async fn init_model_manager_at_startup<R: Runtime>(
 
 
 /// Get recommended summary model based on platform and system RAM.
-/// macOS → qwen3.5:4b
-/// non-macOS + <8GB RAM → qwen3.5:2b
-/// non-macOS + >=8GB RAM → qwen3.5:4b
+/// macOS: text-only Gemma 4 E2B through 8 GiB, E4B above 8 GiB.
+/// Other platforms retain Qwen 3.5 2B below 14 GiB and 4B at or above 14 GiB.
 #[tauri::command]
 pub async fn builtin_ai_get_recommended_model() -> Result<String, String> {
     let recommended = get_recommended_summary_model_for_current_system()?;
@@ -412,14 +416,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recommended_summary_model_uses_qwen2b_below_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 13), "qwen3.5:2b");
+    fn recommended_summary_model_uses_small_model_at_platform_threshold() {
+        assert_eq!(recommend_summary_model(true, 8), "gemma4:e2b");
+        assert_eq!(recommend_summary_model(true, 9), "gemma4:e4b");
         assert_eq!(recommend_summary_model(false, 13), "qwen3.5:2b");
     }
 
     #[test]
-    fn recommended_summary_model_uses_qwen4b_at_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 14), "qwen3.5:4b");
+    fn recommended_summary_model_uses_larger_model_at_platform_threshold() {
+        assert_eq!(recommend_summary_model(true, 14), "gemma4:e4b");
         assert_eq!(recommend_summary_model(false, 14), "qwen3.5:4b");
     }
 

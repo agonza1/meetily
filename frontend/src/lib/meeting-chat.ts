@@ -1,3 +1,4 @@
+export type ChatSource = { segmentId: string; timestamp: string; text: string };
 export type ChatConfiguration = {
   provider: string;
   model: string;
@@ -10,8 +11,10 @@ export type ChatMessage = {
   timestamp?: string;
   model?: string;
   contextTruncated?: boolean;
+  sources?: ChatSource[];
 };
 export type ChatRequest = {
+  requestId: string;
   meetingId: string;
   query: string;
   historyMeetingId: string;
@@ -25,6 +28,7 @@ export type ChatResponse = {
   provider: string;
   model: string;
   contextTruncated: boolean;
+  sources?: ChatSource[];
 };
 export const chatByteLength = (text: string) => new TextEncoder().encode(text).length;
 

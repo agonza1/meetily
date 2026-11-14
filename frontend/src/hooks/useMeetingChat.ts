@@ -8,9 +8,11 @@ import {
 export type ChatTransport = {
   configuration: () => Promise<ChatConfiguration>;
   ask: (request: ChatRequest) => Promise<ChatResponse>;
+  cancel?: (requestId: string) => Promise<void>;
 };
 const nativeTransport: ChatTransport = {
   configuration: () => invoke('api_get_meeting_chat_config'),
+  cancel: requestId => invoke('api_cancel_meeting_chat', { requestId }),
   ask: (request) => invoke('api_ask_meetings_ai', { ...request }),
 };
 type Snapshot = {
@@ -27,6 +29,12 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
   const [refresh, setRefresh] = useState(0);
   const epoch = useRef(0);
   const busy = useRef(false);
+  const active = useRef<string | null>(null);
+  const cancelActive = useCallback(() => {
+    const requestId = active.current;
+    active.current = null;
+    if (requestId) void transport.cancel?.(requestId).catch(() => {});
+  }, [transport]);
   useEffect(() => {
     const version = ++epoch.current;
     busy.current = false;
@@ -38,15 +46,16 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
         if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not load the selected model. Check Settings or retry.' }));
       });
     }
-    return () => { epoch.current++; };
-  }, [meetingId, open, refresh, transport]);
+    return () => { epoch.current++; cancelActive(); };
+  }, [meetingId, open, refresh, transport, cancelActive]);
 
   const reset = useCallback(() => {
     epoch.current++;
+    cancelActive();
     busy.current = false;
     setSnapshot(empty(meetingId));
     setRefresh(value => value + 1);
-  }, [meetingId]);
+  }, [meetingId, cancelActive]);
 
   const send = async (question: string, allowProviderRequest = false) => {
     const query = question.trim();
@@ -61,11 +70,13 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
     }
     const version = epoch.current;
     const configuration = snapshot.configuration;
+    const requestId = crypto.randomUUID();
+    active.current = requestId;
     busy.current = true;
     setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
     try {
       const response = await transport.ask({
-        query, meetingId, historyMeetingId: meetingId,
+        requestId, query, meetingId, historyMeetingId: meetingId,
         history: boundedChatHistory(snapshot.messages),
         configurationId: configuration.configurationId, allowProviderRequest,
       });
@@ -75,7 +86,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       }
       setSnapshot(current => ({ ...current, messages: [...current.messages, {
         role: 'assistant', content: response.answer, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        model: `${response.provider} · ${response.model}`, contextTruncated: response.contextTruncated,
+        model: `${response.provider} · ${response.model}`, contextTruncated: response.contextTruncated, sources: response.sources,
       }] }));
     } catch (error) {
       if (epoch.current === version) {
@@ -84,6 +95,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
         setSnapshot(current => ({ ...current, error: message }));
       }
     } finally {
+      if (active.current === requestId) active.current = null;
       if (epoch.current === version) {
         busy.current = false;
         setSnapshot(current => ({ ...current, pending: false }));
@@ -93,5 +105,11 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
   };
   // Hide old scope data during the render before the cleanup effect runs.
   const visible = open && snapshot.scope === meetingId ? snapshot : empty(meetingId);
-  return { ...visible, send, reset };
+  const stop = () => {
+    epoch.current++;
+    cancelActive();
+    busy.current = false;
+    setSnapshot(current => ({ ...current, pending: false, error: null }));
+  };
+  return { ...visible, send, reset, stop };
 }

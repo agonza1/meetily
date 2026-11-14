@@ -863,6 +863,7 @@ pub fn run() {
             // Summary commands
             summary::ask_ai::api_get_meeting_chat_config,
             summary::ask_ai::api_ask_meetings_ai,
+            summary::ask_ai::api_cancel_meeting_chat,
             summary::commands::api_process_transcript,
             summary::commands::api_get_summary,
             summary::commands::api_save_meeting_summary,

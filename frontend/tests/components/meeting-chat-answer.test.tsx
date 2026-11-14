@@ -125,3 +125,23 @@ test('imported copy control copies the actual answer and drops stale clipboard c
     else Reflect.deleteProperty(globalThis, 'navigator');
   }
 });
+
+test('source disclosure renders native timestamps and quotations as plain text', async () => {
+  const transport: ChatTransport = {
+    configuration: async () => ({ provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false }),
+    ask: async () => ({ answer: 'Noor approved it.', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: true,
+      sources: [{ segmentId: 'late', timestamp: '45:00', text: '<script>unsafe</script> Noor approved the budget.' }] }),
+  };
+  let view!: ReturnType<typeof create>;
+  await act(async () => { view = create(<AppRouterContext.Provider value={{ push() {} } as any}>
+    <MeetingChatConversation currentMeetingId="A" meetings={[{ id: 'A', title: 'A' }]} onOpenChange={() => {}} transport={transport} />
+  </AppRouterContext.Provider>); });
+  try {
+    await act(async () => view.root.findByType('textarea').props.onChange({ target: { value: 'Who approved the budget?' } }));
+    await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+    expect(view.root.findByType('summary').children.join('')).toContain('Transcript sources');
+    expect(view.root.findByType('blockquote').children.join('')).toContain('<script>unsafe</script>');
+    expect(view.root.findAllByType('script')).toHaveLength(0);
+    expect(JSON.stringify(view.toJSON())).toContain('45:00');
+  } finally { await act(async () => view.unmount()); }
+});

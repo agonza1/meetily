@@ -52,7 +52,7 @@ describe('selected-meeting chat ownership', () => {
   test('binds the first request to the selected meeting and omits the current question from history', async () => {
     await show('A');
     await send('A question');
-    expect(pending[0].request).toEqual({ meetingId: 'A', historyMeetingId: 'A', query: 'A question', history: [], configurationId: 'version-1', allowProviderRequest: false });
+    expect(pending[0].request).toMatchObject({ meetingId: 'A', historyMeetingId: 'A', query: 'A question', history: [], configurationId: 'version-1', allowProviderRequest: false });
     await answer(0);
     expect(state.messages.map(message => message.role)).toEqual(['user', 'assistant']);
     expect(state.messages[1].model).toBe('builtin-ai · qwen3.5:4b');
@@ -144,4 +144,28 @@ describe('bounded chat history', () => {
     expect(history.reduce((sum, message) => sum + chatByteLength(message.content), 0)).toBeLessThanOrEqual(6_000);
     expect(boundedChatHistory([{ role: 'assistant', content: 'x'.repeat(6_001) }])).toEqual([]);
   });
+});
+
+test('stop cancels only the active request and discards its eventual answer', async () => {
+  const cancelled: string[] = [];
+  transport.cancel = async id => { cancelled.push(id); };
+  await show('A'); await send();
+  const id = pending[0].request.requestId;
+  await act(async () => state.stop());
+  expect(cancelled).toEqual([id]);
+  expect(state.pending).toBe(false);
+  await send('Next'); await answer(0, 'Cancelled output');
+  expect(state.pending).toBe(true);
+  await answer(1, 'Current answer', { sources: [{ segmentId: 's1', timestamp: '45:00', text: 'Exact evidence' }] });
+  expect(state.messages.some(m => m.content === 'Cancelled output')).toBe(false);
+  expect(state.messages.at(-1)?.sources?.[0].timestamp).toBe('45:00');
+});
+
+test('scope changes and closing cancel their pending native request', async () => {
+  const cancelled: string[] = [];
+  transport.cancel = async id => { cancelled.push(id); };
+  await show('A'); await send();
+  await show('B'); await send();
+  await show('B', false);
+  expect(cancelled).toEqual(pending.map(p => p.request.requestId));
 });

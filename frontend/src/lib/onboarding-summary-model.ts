@@ -10,6 +10,8 @@ interface OnboardingSummaryModelStatus {
 }
 
 const SUMMARY_MODEL_SIZES_MB: Record<string, number> = {
+  'gemma4:e2b': 2962,
+  'gemma4:e4b': 4747,
   'qwen3.5:2b': 1221,
   'qwen3.5:4b': 2614,
   'gemma3:1b': 1019,
