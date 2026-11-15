@@ -102,3 +102,7 @@ Remaining: native UI acceptance, production cancellation of model generation, qu
 ## November 14 macOS MVP
 
 See [MVP implementation and evidence](chat-meetings-macos-mvp.md). This reuses main's recording/transcription, notes editor, standard template, summary chunk/cache pipeline, model manager and persistent helper. It adds local question-relevant retrieval, validated exact quotations with SQLite timestamps, request cancellation and pinned text-only Gemma 4 options. On macOS, fresh onboarding recommends E4B above 8 GiB; through 8 GiB it retains Qwen 3.5 2B pending physical Gemma qualification. E2B is manually selectable and saved choices remain authoritative. No RapidFuzz, embeddings, media projector, new runtime or storage migration is included. Cross-meeting search and durable chat history remain later work.
+
+## November 15 next slice: saved per-meeting conversations
+
+PR #1 is merged at 2f73ba2239f87c6d90cd23d6d8aa2ebaf7448614. The next bounded slice adds local history for the selected meeting, keeping the latest 20 completed exchanges with model identity and validated source metadata. Clear saved chat invalidates pending saves; meeting deletion cascades history, and transcript changes clear obsolete evidence. Only recent bounded history enters model context. Native SQLite remains the authority. See [saved-chat slice](chat-meetings-macos-history.md) for acceptance and lifecycle details. Cross-meeting search and physical 8-GB model qualification remain separate.

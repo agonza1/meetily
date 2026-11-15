@@ -862,6 +862,8 @@ pub fn run() {
             api::api_test_custom_openai_connection,
             // Summary commands
             summary::ask_ai::api_get_meeting_chat_config,
+            summary::ask_ai::api_get_meeting_chat_history,
+            summary::ask_ai::api_clear_meeting_chat_history,
             summary::ask_ai::api_ask_meetings_ai,
             summary::ask_ai::api_cancel_meeting_chat,
             summary::commands::api_process_transcript,

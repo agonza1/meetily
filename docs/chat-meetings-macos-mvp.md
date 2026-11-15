@@ -1,5 +1,7 @@
 # macOS notes and selected-meeting chat MVP
 
+Historical PR #1 report. The [saved-conversation slice](chat-meetings-macos-history.md) adds durable per-meeting history after this baseline.
+
 The MVP extends main's existing summary pipeline and the attributed #810 chat adaptation. It preserves recording/transcription, the editable notes UI, existing summary caches and custom templates.
 
 - Standard notes retain Summary, Key Decisions, Action Items and Discussion Highlights. Prompts distinguish proposals from agreed tasks, preserve corrections and require rows for agreed unassigned tasks. Missing owners/dates use `Not specified`; missing source references use `Not supplied`. Existing saved notes and custom templates are not rewritten.

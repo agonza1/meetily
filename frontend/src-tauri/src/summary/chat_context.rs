@@ -46,7 +46,7 @@ pub fn utf8_prefix(text: &str, max_bytes: usize) -> &str {
 }
 
 /// A bounded excerpt; IDs and timestamps always originate in SQLite.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Source {
     pub segment_id: String,

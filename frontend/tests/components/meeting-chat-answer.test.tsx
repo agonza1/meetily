@@ -23,6 +23,8 @@ test('late A submit cannot erase the draft for B or a reset conversation', async
   let resolve!: (reply: ChatResponse) => void;
   const configuration = { provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false };
   const transport: ChatTransport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => configuration,
     ask: () => new Promise(done => { resolve = done; }),
   };
@@ -38,12 +40,12 @@ test('late A submit cannot erase the draft for B or a reset conversation', async
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
     await act(async () => view.root.findByType('select').props.onChange({ target: { value: 'B' } }));
     await act(async () => textarea().props.onChange({ target: { value: 'New draft for B' } }));
-    await act(async () => resolve({ answer: 'Old A reply', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false }));
+    await act(async () => resolve({ answer: 'Old A reply', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-15T12:00:00Z' }));
     expect(textarea().props.value).toBe('New draft for B');
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
-    await act(async () => view.root.findAllByType('button').find(button => button.props.title === 'Reset conversation')!.props.onClick());
+    await act(async () => view.root.findAllByType('button').find(button => button.props.title === 'Clear saved chat')!.props.onClick());
     await act(async () => textarea().props.onChange({ target: { value: 'Draft after reset' } }));
-    await act(async () => resolve({ answer: 'Stale B reply', meetingId: 'B', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false }));
+    await act(async () => resolve({ answer: 'Stale B reply', meetingId: 'B', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-15T12:00:00Z' }));
     expect(textarea().props.value).toBe('Draft after reset');
   } finally { await act(async () => view.unmount()); }
 });
@@ -53,10 +55,12 @@ test('imported suggestions use the displayed provider and require confirmation o
   const calls: any[] = [];
   const configuration = { provider: 'openai', model: 'saved-model', configurationId: 'v2', requiresProviderConfirmation: true };
   const transport: ChatTransport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => configuration,
     ask: async request => {
       calls.push(request);
-      return { answer: 'Synthetic answer', meetingId: request.meetingId, provider: 'openai', model: 'saved-model', contextTruncated: true };
+      return { answer: 'Synthetic answer', meetingId: request.meetingId, provider: 'openai', model: 'saved-model', contextTruncated: true, historyRevision: request.historyRevision + 1, createdAt: '2026-11-15T12:00:00Z' };
     },
   };
   let view!: ReturnType<typeof create>;
@@ -94,8 +98,10 @@ test('imported copy control copies the actual answer and drops stale clipboard c
     writeText: (text: string) => { copied.push(text); return new Promise<void>(resolve => { finishCopy = resolve; }); },
   } } });
   const transport: ChatTransport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => ({ provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false }),
-    ask: async () => ({ answer: 'Checklist by Friday', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false }),
+    ask: async request => ({ answer: 'Checklist by Friday', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: request.historyRevision + 1, createdAt: '2026-11-15T12:00:00Z' }),
   };
   let view!: ReturnType<typeof create>;
   try {
@@ -115,7 +121,7 @@ test('imported copy control copies the actual answer and drops stale clipboard c
     await act(async () => finishCopy());
     expect(button('Copy response').findAllByType('span').some(span => span.children.includes('Copied'))).toBe(true);
     act(() => { void button('Copy response').props.onClick(); });
-    await act(async () => button('Reset conversation').props.onClick());
+    await act(async () => button('Clear saved chat').props.onClick());
     await ask();
     await act(async () => finishCopy());
     expect(button('Copy response').findAllByType('span').some(span => span.children.includes('Copied'))).toBe(false);
@@ -128,8 +134,10 @@ test('imported copy control copies the actual answer and drops stale clipboard c
 
 test('source disclosure renders native timestamps and quotations as plain text', async () => {
   const transport: ChatTransport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => ({ provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false }),
-    ask: async () => ({ answer: 'Noor approved it.', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: true,
+    ask: async request => ({ answer: 'Noor approved it.', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: true, historyRevision: request.historyRevision + 1, createdAt: '2026-11-15T12:00:00Z',
       sources: [{ segmentId: 'late', timestamp: '45:00', text: '<script>unsafe</script> Noor approved the budget.' }] }),
   };
   let view!: ReturnType<typeof create>;
@@ -151,6 +159,8 @@ test('stopping preserves a new draft after a delayed reply and renews provider c
   let resolve!: (response: ChatResponse) => void;
   const cancelled: string[] = [];
   const transport: ChatTransport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => ({ provider: 'openai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: true }),
     ask: () => new Promise(done => { resolve = done; }),
     cancel: async id => { cancelled.push(id); },
@@ -168,7 +178,7 @@ test('stopping preserves a new draft after a delayed reply and renews provider c
     expect(cancelled).toHaveLength(1);
     expect(view.root.findByType('input').props.checked).toBe(false);
     await act(async () => textarea().props.onChange({ target: { value: 'New draft after Stop' } }));
-    await act(async () => resolve({ answer: 'Cancelled reply', meetingId: 'A', provider: 'openai', model: 'synthetic', contextTruncated: false }));
+    await act(async () => resolve({ answer: 'Cancelled reply', meetingId: 'A', provider: 'openai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-15T12:00:00Z' }));
     expect(textarea().props.value).toBe('New draft after Stop');
     expect(JSON.stringify(view.toJSON())).not.toContain('Cancelled reply');
     expect(view.root.findAllByType('button').find(b => b.props.type === 'submit')!.props.disabled).toBe(true);
