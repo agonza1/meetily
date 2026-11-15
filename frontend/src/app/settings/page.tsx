@@ -1,8 +1,8 @@
 'use client';
 
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, Suspense } from 'react';
 import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
@@ -22,12 +22,16 @@ const TABS = [
   { value: 'beta', label: 'Beta', icon: FlaskConical }
 ] as const;
 
-export default function SettingsPage() {
+function SettingsContent() {
+  const searchParams = useSearchParams();
   const router = useRouter();
   const { transcriptModelConfig, setTranscriptModelConfig } = useConfig();
 
   // Animation state for tabs
   const [activeTab, setActiveTab] = useState('general');
+  useEffect(() => {
+    if (searchParams.get('tab') === 'summary') setActiveTab('summaryModels');
+  }, [searchParams]);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });
 
@@ -133,3 +137,7 @@ export default function SettingsPage() {
     </div>
   );
 };
+
+export default function SettingsPage() {
+  return <Suspense fallback={<p>Loading settings…</p>}><SettingsContent /></Suspense>;
+}

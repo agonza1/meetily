@@ -55,6 +55,8 @@ lazy_static::lazy_static! {
     static ref SIDECAR_MANAGER: Arc<Mutex<Option<Arc<SidecarManager>>>> = Arc::new(Mutex::new(None));
 }
 
+static GENERATION_LOCK: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
+
 // Model path cache to avoid repeated filesystem I/O and model lookups
 static MODEL_PATH_CACHE: Lazy<RwLock<HashMap<String, PathBuf>>> = Lazy::new(|| {
     RwLock::new(HashMap::new())
@@ -167,6 +169,16 @@ pub async fn generate_with_builtin(
         }
         global_manager.clone().unwrap()
     };
+
+    // One native request owns the shared helper until completion/cancellation. A waiting
+    // chat cancellation must never shut down another meeting's active summary generation.
+    let _generation = if let Some(token) = cancellation_token {
+        tokio::select! {
+            biased;
+            _ = token.cancelled() => return Err(anyhow!("Generation cancelled while waiting")),
+            guard = GENERATION_LOCK.lock() => guard,
+        }
+    } else { GENERATION_LOCK.lock().await };
 
     // Ensure sidecar is running with this model
     manager.ensure_running(model_path.clone()).await?;

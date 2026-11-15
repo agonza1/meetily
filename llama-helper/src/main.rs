@@ -368,7 +368,7 @@ impl ModelState {
             .with_n_ctx(Some(
                 NonZeroU32::new(self.context_size).context("Invalid ctx size")?,
             ))
-            .with_n_batch(self.context_size)
+            .with_n_batch(self.context_size.min(512))
             .with_n_threads(threads)
             .with_n_threads_batch(threads);
 
@@ -382,22 +382,22 @@ impl ModelState {
 
         eprintln!("📝 Tokenized prompt: {} tokens", tokens_list.len());
 
-        // Use context size for batch capacity to handle long prompts
-        let batch_size = self.context_size as usize;
-        let mut batch = LlamaBatch::new(batch_size, 1);
-
-        let last_index: i32 = (tokens_list.len() - 1) as i32;
-        for (i, token) in (0_i32..).zip(tokens_list.into_iter()) {
-            let is_last = i == last_index;
-            batch
-                .add(token, i, &[0], is_last)
-                .context("Failed to add token to batch")?;
+        if tokens_list.is_empty() || tokens_list.len() >= self.context_size as usize {
+            anyhow::bail!("Prompt does not fit the selected context window");
         }
-
-        ctx.decode(&mut batch).context("llama_decode() failed")?;
+        let batch_size = self.context_size.min(512) as usize;
+        let mut batch = LlamaBatch::new(batch_size, 1);
+        let n_prompt_tokens = tokens_list.len() as i32;
+        for (chunk_index, chunk) in tokens_list.chunks(batch_size).enumerate() {
+            batch.clear();
+            for (index, token) in chunk.iter().enumerate() {
+                let position = (chunk_index * batch_size + index) as i32;
+                batch.add(*token, position, &[0], position == n_prompt_tokens - 1)
+                    .context("Failed to add prompt token to batch")?;
+            }
+            ctx.decode(&mut batch).context("llama_decode() failed during prefill")?;
+        }
         let prompt_time = start_time.elapsed();
-
-        let n_prompt_tokens = batch.n_tokens();
         let mut n_cur = n_prompt_tokens;
         let mut decoder = encoding_rs::UTF_8.new_decoder();
         let mut output = String::new();

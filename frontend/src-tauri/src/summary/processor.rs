@@ -216,13 +216,13 @@ fn translation_system_prompt(target_language: &str) -> String {
 
 fn build_chunk_summary_user_prompt(chunk: &str) -> String {
     format!(
-        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nProvide a concise but comprehensive summary of the following transcript chunk. Capture all key points, decisions, action items, and mentioned individuals. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<transcript_chunk>\n{chunk}\n</transcript_chunk>"
+        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nProvide a concise but comprehensive summary of the following transcript chunk. Capture key points, final decisions, agreed action items, and mentioned individuals. Preserve explicit corrections and distinguish proposals from commitments. Retain tasks even when owner or deadline is missing; mark missing fields as Not specified. Keep supplied source references and timestamps verbatim; never invent them. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<transcript_chunk>\n{chunk}\n</transcript_chunk>"
     )
 }
 
 fn build_combine_summary_user_prompt(combined_text: &str) -> String {
     format!(
-        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nThe following are consecutive summaries of a meeting. Combine them into a single, coherent, and detailed narrative summary that retains all important details, organized logically. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<summaries>\n{combined_text}\n</summaries>"
+        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\n\nThe following are consecutive summaries of a meeting. Combine them into a single, coherent, and detailed narrative summary that retains all important details, organized logically. Preserve corrections, unresolved questions, and tasks with missing owners or deadlines; do not invent assignments, dates or transcript references. Do not include reasoning, self-correction, or meta-commentary — output only the summary content.\n\n<summaries>\n{combined_text}\n</summaries>"
     )
 }
 fn build_final_report_system_prompt(
@@ -240,7 +240,7 @@ fn build_final_report_system_prompt(
 5. If a section has no relevant info, write "None noted in this section."
 6. Output **only** the completed Markdown report.
 7. Do not include reasoning, thinking, self-correction, decision strategy, or any meta-commentary sections — output only the completed Markdown report.
-8. If unsure about something, omit it.
+8. Keep agreed tasks with missing owners or deadlines; mark the missing fields as "Not specified". Do not infer assignments or dates. Preserve supplied source references verbatim and use "Not supplied" when absent. A proposal is not a decision or an agreed task. An agreed unassigned task belongs in Action Items with missing fields marked, not only in Decisions or Highlights.
 
 **SECTION-SPECIFIC INSTRUCTIONS:**
 {section_instructions}
