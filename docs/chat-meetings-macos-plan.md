@@ -1,6 +1,6 @@
 # Finish chat with meetings on macOS
 
-Status: macOS notes/chat MVP implementation extended on 2026-11-14. Native model acceptance and automated checks are recorded in chat-meetings-macos-mvp.md. Visual Tauri acceptance remains pending because computer automation cannot bind the isolated app. Full cross-meeting work is deferred.
+Status: macOS notes/chat MVP implementation extended on 2026-11-14. Native model acceptance and automated checks are recorded in chat-meetings-macos-mvp.md. Native functional UI acceptance now passes through an isolated debug harness; screenshot/layout checks remain unavailable in the background WebKit environment. Full cross-meeting work is deferred.
 Repository: https://github.com/agonza1/meetily
 Branch: enhance/chat-meetings-macos
 Current upstream baseline: 2166bc6fe3ba585580f3f94b79cda7e7b91deb76 (v0.5.0 plus upstream build/docs/Linux installer fixes).
@@ -101,4 +101,4 @@ Remaining: native UI acceptance, production cancellation of model generation, qu
 
 ## November 14 macOS MVP
 
-See [MVP implementation and evidence](chat-meetings-macos-mvp.md). This reuses main's recording/transcription, notes editor, standard template, summary chunk/cache pipeline, model manager and persistent helper. It adds local question-relevant retrieval, validated exact quotations with SQLite timestamps, request cancellation and pinned text-only Gemma 4 options. On macOS, fresh onboarding recommends E2B through 8 GiB and E4B above 8 GiB; saved selections remain authoritative. Physical 8-GB qualification remains pending. No RapidFuzz, embeddings, media projector, new runtime or storage migration is included. Cross-meeting search and durable chat history remain later work.
+See [MVP implementation and evidence](chat-meetings-macos-mvp.md). This reuses main's recording/transcription, notes editor, standard template, summary chunk/cache pipeline, model manager and persistent helper. It adds local question-relevant retrieval, validated exact quotations with SQLite timestamps, request cancellation and pinned text-only Gemma 4 options. On macOS, fresh onboarding recommends E4B above 8 GiB; through 8 GiB it retains Qwen 3.5 2B pending physical Gemma qualification. E2B is manually selectable and saved choices remain authoritative. No RapidFuzz, embeddings, media projector, new runtime or storage migration is included. Cross-meeting search and durable chat history remain later work.

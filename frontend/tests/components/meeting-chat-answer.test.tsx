@@ -145,3 +145,32 @@ test('source disclosure renders native timestamps and quotations as plain text',
     expect(JSON.stringify(view.toJSON())).toContain('45:00');
   } finally { await act(async () => view.unmount()); }
 });
+
+
+test('stopping preserves a new draft after a delayed reply and renews provider confirmation', async () => {
+  let resolve!: (response: ChatResponse) => void;
+  const cancelled: string[] = [];
+  const transport: ChatTransport = {
+    configuration: async () => ({ provider: 'openai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: true }),
+    ask: () => new Promise(done => { resolve = done; }),
+    cancel: async id => { cancelled.push(id); },
+  };
+  let view!: ReturnType<typeof create>;
+  await act(async () => { view = create(<AppRouterContext.Provider value={{ push() {} } as any}>
+    <MeetingChatConversation currentMeetingId="A" meetings={[{ id: 'A', title: 'A' }]} onOpenChange={() => {}} transport={transport} />
+  </AppRouterContext.Provider>); });
+  try {
+    const textarea = () => view.root.findByType('textarea');
+    await act(async () => textarea().props.onChange({ target: { value: 'Old question' } }));
+    await act(async () => view.root.findByType('input').props.onChange({ target: { checked: true } }));
+    await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+    await act(async () => view.root.findAllByType('button').find(b => b.children.includes('Stop generating'))!.props.onClick());
+    expect(cancelled).toHaveLength(1);
+    expect(view.root.findByType('input').props.checked).toBe(false);
+    await act(async () => textarea().props.onChange({ target: { value: 'New draft after Stop' } }));
+    await act(async () => resolve({ answer: 'Cancelled reply', meetingId: 'A', provider: 'openai', model: 'synthetic', contextTruncated: false }));
+    expect(textarea().props.value).toBe('New draft after Stop');
+    expect(JSON.stringify(view.toJSON())).not.toContain('Cancelled reply');
+    expect(view.root.findAllByType('button').find(b => b.props.type === 'submit')!.props.disabled).toBe(true);
+  } finally { await act(async () => view.unmount()); }
+});

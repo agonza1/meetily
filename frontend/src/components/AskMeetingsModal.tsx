@@ -78,6 +78,7 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
       copyTimer.current = setTimeout(() => setCopiedId(null), 2000);
     } catch { if (epoch.current === version) toast.error('Could not copy the response'); }
   }
+  function handleStop() { epoch.current++; chat.stop(); setConfirmed(false); }
   function handleReset() { epoch.current++; chat.reset(); setInput(''); setConfirmed(false); setCopiedId(null); }
   function handleSettingsClick() {
     onClose();
@@ -117,7 +118,7 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
           </div>
         </div>
 
-        {loading && <button type="button" onClick={chat.stop} className="mx-6 my-2 self-start text-sm text-blue-700">Stop generating</button>}
+        {loading && <button type="button" onClick={handleStop} className="mx-6 my-2 self-start text-sm text-blue-700">Stop generating</button>}
 
         {/* Scope Selector Bar */}
         <div className="px-6 py-2.5 bg-gray-50/90 border-b border-gray-100 flex items-center gap-3 text-xs text-gray-600">

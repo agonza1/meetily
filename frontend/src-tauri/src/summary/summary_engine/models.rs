@@ -254,8 +254,9 @@ pub fn get_model_by_name(name: &str) -> Option<ModelDef> {
 
 /// Conservative fallback; onboarding uses the hardware-specific recommendation.
 pub fn get_default_model() -> ModelDef {
-    get_model_by_name(if cfg!(target_os = "macos") { "gemma4:e2b" } else { "qwen3.5:2b" })
-        .expect("Default model must be in the catalogue")
+    let recommended = super::commands::get_recommended_summary_model_for_current_system()
+        .unwrap_or("qwen3.5:2b");
+    get_model_by_name(recommended).expect("Default model must be in the catalogue")
 }
 
 /// Resolve model name to full file path in the models directory

@@ -192,7 +192,7 @@ async fn read_context(
     let (title, created_at) = metadata.ok_or("This meeting is no longer available.")?;
     let mut segments = sqlx::query_as::<_, Segment>(
         "SELECT id, timestamp, transcript AS text FROM transcripts
-         WHERE meeting_id = ? AND trim(transcript) <> '' ORDER BY audio_start_time ASC, id ASC",
+         WHERE meeting_id = ? AND trim(transcript) <> '' ORDER BY audio_start_time ASC, rowid ASC",
     )
     .bind(meeting_id)
     .fetch(pool);
@@ -561,6 +561,25 @@ mod tests {
         let context = read_context(&pool, "A", "decision").await.unwrap();
         assert!(context.truncated);
         assert!(context.text.len() <= chat_context::MAX_CONTEXT_BYTES);
+    }
+    #[tokio::test]
+    async fn legacy_segments_without_audio_times_keep_insertion_order_not_random_id_order() {
+        let pool = database().await;
+        segment(&pool, "z-random-first", "A", "The budget proposal is 100.").await;
+        segment(
+            &pool,
+            "a-random-last",
+            "A",
+            "Final budget correction: approved amount is 42.",
+        )
+        .await;
+        let context = read_context(&pool, "A", "budget").await.unwrap();
+        assert_eq!(context.sources[0].segment_id, "z-random-first");
+        assert_eq!(context.sources[1].segment_id, "a-random-last");
+        assert!(
+            context.text.find("proposal is 100").unwrap()
+                < context.text.find("approved amount is 42").unwrap()
+        );
     }
     #[tokio::test]
     async fn retrieval_finds_late_decision_and_cannot_leak_foreign_match() {

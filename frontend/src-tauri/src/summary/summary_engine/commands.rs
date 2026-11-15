@@ -24,7 +24,9 @@ pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
 
 pub(crate) fn recommend_summary_model(is_macos: bool, system_ram_gb: u64) -> &'static str {
     if is_macos {
-        return if system_ram_gb <= 8 { "gemma4:e2b" } else { "gemma4:e4b" };
+        // Keep Gemma E2B selectable, but do not automatically promote it on
+        // unqualified low-memory Macs until physical 8-GB acceptance is available.
+        return if system_ram_gb <= 8 { "qwen3.5:2b" } else { "gemma4:e4b" };
     }
     if system_ram_gb >= QWEN35_4B_RECOMMENDED_RAM_GB {
         "qwen3.5:4b"
@@ -345,10 +347,13 @@ pub async fn builtin_ai_get_available_summary_model<R: Runtime>(
     // Get all available models
     let all_models = manager.list_models().await;
 
-    // Find first available summary model
+    // Do not auto-select an unqualified Gemma model on a low-memory or unknown host.
+    let allow_gemma_default = cfg!(target_os = "macos")
+        && get_system_ram_gb().is_ok_and(|ram| ram > 8);
     let available = all_models
         .iter()
         .filter(|m| matches!(m.status, crate::summary::summary_engine::model_manager::ModelStatus::Available))
+        .filter(|m| allow_gemma_default || !m.name.starts_with("gemma4:"))
         .max_by_key(|m| summary_model_priority(&m.name))
         .map(|m| m.name.clone());
 
@@ -388,7 +393,8 @@ pub async fn init_model_manager_at_startup<R: Runtime>(
 
 
 /// Get recommended summary model based on platform and system RAM.
-/// macOS: text-only Gemma 4 E2B through 8 GiB, E4B above 8 GiB.
+/// macOS: Gemma 4 E4B above 8 GiB. Keep the existing Qwen 2B default through
+/// 8 GiB until physical low-memory Gemma qualification; Gemma E2B stays selectable.
 /// Other platforms retain Qwen 3.5 2B below 14 GiB and 4B at or above 14 GiB.
 #[tauri::command]
 pub async fn builtin_ai_get_recommended_model() -> Result<String, String> {
@@ -417,7 +423,7 @@ mod tests {
 
     #[test]
     fn recommended_summary_model_uses_small_model_at_platform_threshold() {
-        assert_eq!(recommend_summary_model(true, 8), "gemma4:e2b");
+        assert_eq!(recommend_summary_model(true, 8), "qwen3.5:2b");
         assert_eq!(recommend_summary_model(true, 9), "gemma4:e4b");
         assert_eq!(recommend_summary_model(false, 13), "qwen3.5:2b");
     }
