@@ -48,9 +48,12 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
   const loading = chat.pending;
   const modelConfig = chat.configuration ? { provider: providerName(chat.configuration.provider), model: chat.configuration.model } : null;
   const messages = chat.messages.map((message, index) => ({
-    ...message, id: `${message.role}-${index}`, timestamp: message.timestamp ?? '', modelInfo: message.model,
+    ...message, id: message.id ?? `${message.role}-${index}`,
+    timestamp: message.timestamp && Number.isFinite(Date.parse(message.timestamp))
+      ? new Date(message.timestamp).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })
+      : message.timestamp ?? '', modelInfo: message.model,
   }));
-  const canSend = Boolean(selectedScope && chat.configuration && !loading && (!chat.configuration.requiresProviderConfirmation || confirmed));
+  const canSend = Boolean(selectedScope && chat.configuration && chat.revision !== null && !loading && (!chat.configuration.requiresProviderConfirmation || confirmed));
   useEffect(() => {
     epoch.current++;
     setInput(''); setConfirmed(false); setCopiedId(null);
@@ -102,8 +105,8 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
             <button
               onClick={handleReset}
               className="p-2 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-full transition-colors"
-              title="Reset conversation"
-              aria-label="Reset conversation"
+              title="Clear saved chat"
+              aria-label="Clear saved chat"
             >
               <RotateCcw className="w-4 h-4" />
             </button>
@@ -345,7 +348,7 @@ export function AskMeetingsConversation({ meetings: meetingList, currentMeetingI
         {selectedScope && <button type="button" className="mx-6 mb-2 self-start text-xs text-blue-600 hover:text-blue-800" onClick={() => {
           onClose(); router.push(`/meeting-details?id=${encodeURIComponent(selectedScope)}`);
         }}>Open transcript</button>}
-        <p className="px-6 pb-3 text-[11px] text-gray-500">Check answers against the transcript. Partial context is disclosed. Changing meetings or closing clears this chat; closing or stopping cancels the active request.</p>
+        <p className="px-6 pb-3 text-[11px] text-gray-500">Check answers against the transcript. Partial context is disclosed. The latest 20 completed answers are saved locally for this meeting. Clear saved chat or transcript changes remove this history. Closing or stopping cancels unfinished replies.</p>
   </>;
 }
 

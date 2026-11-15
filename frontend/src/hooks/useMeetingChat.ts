@@ -2,16 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import {
   boundedChatHistory, chatByteLength,
-  type ChatConfiguration, type ChatMessage, type ChatRequest, type ChatResponse,
+  type ChatConfiguration, type ChatMessage, type ChatRequest, type ChatResponse, type ChatHistory,
 } from '../lib/meeting-chat';
 
 export type ChatTransport = {
   configuration: () => Promise<ChatConfiguration>;
+  history: (meetingId: string) => Promise<ChatHistory>;
+  clear: (meetingId: string) => Promise<ChatHistory>;
   ask: (request: ChatRequest) => Promise<ChatResponse>;
   cancel?: (requestId: string) => Promise<void>;
 };
 const nativeTransport: ChatTransport = {
   configuration: () => invoke('api_get_meeting_chat_config'),
+  history: meetingId => invoke('api_get_meeting_chat_history', { meetingId }),
+  clear: meetingId => invoke('api_clear_meeting_chat_history', { meetingId }),
   cancel: requestId => invoke('api_cancel_meeting_chat', { requestId }),
   ask: (request) => invoke('api_ask_meetings_ai', { ...request }),
 };
@@ -19,47 +23,64 @@ type Snapshot = {
   scope: string | null;
   configuration: ChatConfiguration | null;
   messages: ChatMessage[];
+  revision: number | null;
   pending: boolean;
   error: string | null;
 };
-const empty = (scope: string | null): Snapshot => ({ scope, configuration: null, messages: [], pending: false, error: null });
+const empty = (scope: string | null): Snapshot => ({ scope, configuration: null, messages: [], revision: null, pending: false, error: null });
 
 export function useMeetingChat(meetingId: string | null, open: boolean, transport: ChatTransport = nativeTransport) {
   const [snapshot, setSnapshot] = useState<Snapshot>(() => empty(meetingId));
-  const [refresh, setRefresh] = useState(0);
   const epoch = useRef(0);
   const busy = useRef(false);
   const active = useRef<string | null>(null);
-  const cancelActive = useCallback(() => {
+  const cancelActive = useCallback(async () => {
     const requestId = active.current;
     active.current = null;
-    if (requestId) void transport.cancel?.(requestId).catch(() => {});
+    try { if (requestId) await transport.cancel?.(requestId); return true; }
+    catch { return false; }
   }, [transport]);
   useEffect(() => {
     const version = ++epoch.current;
     busy.current = false;
     setSnapshot(empty(meetingId));
     if (open && meetingId) {
-      void transport.configuration().then(configuration => {
-        if (epoch.current === version) setSnapshot(current => ({ ...current, configuration }));
+      void Promise.allSettled([transport.configuration(), transport.history(meetingId)]).then(([configuration, restored]) => {
+        if (restored.status === 'rejected') throw new Error('History could not be read');
+        const history = restored.value;
+        if (history.meetingId !== meetingId || !Number.isSafeInteger(history.revision) || history.revision < 0) throw new Error('Unexpected history scope');
+        if (epoch.current === version) setSnapshot(current => ({ ...current, messages: history.messages, revision: history.revision,
+          configuration: configuration.status === 'fulfilled' ? configuration.value : null,
+          error: configuration.status === 'rejected' ? 'Saved chat loaded. Choose a model in Settings to continue.' : null }));
       }).catch(() => {
-        if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not load the selected model. Check Settings or retry.' }));
+        if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not load saved chat or model settings. Reopen chat to retry.' }));
       });
     }
     return () => { epoch.current++; cancelActive(); };
-  }, [meetingId, open, refresh, transport, cancelActive]);
+  }, [meetingId, open, transport, cancelActive]);
 
-  const reset = useCallback(() => {
-    epoch.current++;
+  const reset = useCallback(async () => {
+    const version = ++epoch.current;
     cancelActive();
     busy.current = false;
     setSnapshot(empty(meetingId));
-    setRefresh(value => value + 1);
-  }, [meetingId, cancelActive]);
+    if (!meetingId || !open) return;
+    try {
+      const [configuration, cleared] = await Promise.allSettled([transport.configuration(), transport.clear(meetingId)]);
+      if (cleared.status === 'rejected') throw new Error('Clear failed');
+      const history = cleared.value;
+      if (history.meetingId !== meetingId || !Number.isSafeInteger(history.revision) || history.revision < 0 || history.messages.length) throw new Error('Unexpected clear result');
+      if (epoch.current === version) setSnapshot({ ...empty(meetingId), revision: history.revision,
+        configuration: configuration.status === 'fulfilled' ? configuration.value : null,
+        error: configuration.status === 'rejected' ? 'Saved chat cleared. Could not load model settings; reopen chat to retry.' : null });
+    } catch {
+      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not clear saved chat. Reopen chat to reload it.' }));
+    }
+  }, [meetingId, open, transport, cancelActive]);
 
   const send = async (question: string, allowProviderRequest = false) => {
     const query = question.trim();
-    if (!open || !meetingId || snapshot.scope !== meetingId || !snapshot.configuration || busy.current) return false;
+    if (!open || !meetingId || snapshot.scope !== meetingId || !snapshot.configuration || snapshot.revision === null || busy.current) return false;
     if (!query || chatByteLength(query) > 4_000) {
       setSnapshot(current => ({ ...current, error: 'Enter a question, or shorten it before trying again.' }));
       return false;
@@ -70,24 +91,25 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
     }
     const version = epoch.current;
     const configuration = snapshot.configuration;
+    const historyRevision = snapshot.revision;
     const requestId = crypto.randomUUID();
     active.current = requestId;
     busy.current = true;
-    setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
+    setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { id: `${requestId}-user`, role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
     try {
       const response = await transport.ask({
-        requestId, query, meetingId, historyMeetingId: meetingId,
+        requestId, historyRevision, query, meetingId, historyMeetingId: meetingId,
         history: boundedChatHistory(snapshot.messages),
         configurationId: configuration.configurationId, allowProviderRequest,
       });
       if (epoch.current !== version) return true;
-      if (response.meetingId !== meetingId || response.provider !== configuration.provider || response.model !== configuration.model) {
+      if (response.meetingId !== meetingId || response.provider !== configuration.provider || response.model !== configuration.model || response.historyRevision !== historyRevision + 1) {
         throw new Error('Unexpected response scope');
       }
       setSnapshot(current => ({ ...current, messages: [...current.messages, {
-        role: 'assistant', content: response.answer, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        id: `${requestId}-assistant`, role: 'assistant' as const, content: response.answer, timestamp: response.createdAt,
         model: `${response.provider} · ${response.model}`, contextTruncated: response.contextTruncated, sources: response.sources,
-      }] }));
+      }].slice(-40), revision: response.historyRevision }));
     } catch (error) {
       if (epoch.current === version) {
         // Native command errors are content-free; do not log questions, transcripts or raw provider errors.
@@ -105,11 +127,21 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
   };
   // Hide old scope data during the render before the cleanup effect runs.
   const visible = open && snapshot.scope === meetingId ? snapshot : empty(meetingId);
-  const stop = () => {
-    epoch.current++;
-    cancelActive();
+  const stop = async () => {
+    const version = ++epoch.current;
+    const cancellation = cancelActive();
     busy.current = false;
-    setSnapshot(current => ({ ...current, pending: false, error: null }));
+    // Preserve the editable draft while reloading any exchange that completed before Stop.
+    setSnapshot(current => ({ ...current, pending: false, revision: null, error: null }));
+    if (!meetingId) return;
+    try {
+      if (!await cancellation) throw new Error('Cancellation failed');
+      const history = await transport.history(meetingId);
+      if (history.meetingId !== meetingId || !Number.isSafeInteger(history.revision) || history.revision < 0) throw new Error('Unexpected history scope');
+      if (epoch.current === version) setSnapshot(current => ({ ...current, messages: history.messages, revision: history.revision }));
+    } catch {
+      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not reload saved chat after stopping. Reopen chat to retry.' }));
+    }
   };
   return { ...visible, send, reset, stop };
 }

@@ -20,6 +20,8 @@ beforeEach(() => {
   configurationReads = 0;
   pending = [];
   transport = {
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => { configurationReads++; return configuration; },
     ask: request => new Promise((resolve, reject) => pending.push({ request, resolve, reject })),
   };
@@ -38,7 +40,7 @@ async function answer(index: number, text = 'A supported answer', override: Part
   const request = pending[index].request;
   await act(async () => pending[index].resolve({
     answer: text, meetingId: request.meetingId, provider: configuration.provider, model: configuration.model,
-    contextTruncated: false, ...override,
+    contextTruncated: false, historyRevision: request.historyRevision + 1, createdAt: '2026-11-15T12:00:00Z', ...override,
   }));
 }
 
@@ -86,7 +88,7 @@ describe('selected-meeting chat ownership', () => {
     await answer(1, 'Current answer');
     expect(state.messages.map(message => message.content)).toEqual(['New question', 'Current answer']);
   });
-  test('closing and reopening clears history and discards the old reply', async () => {
+  test('closing and reopening reloads saved history and discards the old pending reply', async () => {
     await show('A'); await send(); await show('A', false); await show('A'); await answer(0, 'Old answer');
     expect(state.messages).toEqual([]);
   });
@@ -168,4 +170,93 @@ test('scope changes and closing cancel their pending native request', async () =
   await show('B'); await send();
   await show('B', false);
   expect(cancelled).toEqual(pending.map(p => p.request.requestId));
+});
+
+test('restores completed messages with sources and uses the native history revision', async () => {
+  transport.history = async meetingId => ({ meetingId, revision: 7, messages: [
+    { id: 'saved-user', role: 'user', content: 'Prior question', timestamp: '2026-11-15T12:00:00Z' },
+    { id: 'saved-answer', role: 'assistant', content: 'Saved answer', model: 'builtin-ai · earlier-model', sources: [{ segmentId: 's1', timestamp: '00:10', text: 'Original evidence' }] },
+  ] });
+  await show('A');
+  expect(state.messages[1].sources?.[0].segmentId).toBe('s1');
+  expect(state.messages[1].model).toContain('earlier-model');
+  await show('A', false); await show('A');
+  expect(state.messages.map(m => m.content)).toEqual(['Prior question', 'Saved answer']);
+  await send('Follow-up');
+  expect(pending[0].request.historyRevision).toBe(7);
+  expect(pending[0].request.history.map(m => m.content)).toEqual(['Prior question', 'Saved answer']);
+});
+
+test('a late saved-history load cannot leak A messages into B', async () => {
+  const loads: ((value: any) => void)[] = [];
+  transport.history = () => new Promise(resolve => loads.push(resolve));
+  await show('A'); await show('B');
+  await act(async () => loads[0]({ meetingId: 'A', revision: 3, messages: [{ role: 'assistant', content: 'A history' }] }));
+  expect(state.messages).toEqual([]);
+  await act(async () => loads[1]({ meetingId: 'B', revision: 9, messages: [{ role: 'assistant', content: 'B history' }] }));
+  expect(state.messages.map(m => m.content)).toEqual(['B history']);
+});
+
+test('clear waits for a durable new revision before allowing another question', async () => {
+  let finish!: (history: any) => void;
+  const scopes: string[] = [];
+  transport.clear = meetingId => { scopes.push(meetingId); return new Promise(resolve => { finish = resolve; }); };
+  await show('A'); await send('Old question');
+  await act(async () => { void state.reset(); });
+  await send('Cannot send during clear'); expect(pending).toHaveLength(1);
+  await act(async () => finish({ meetingId: 'A', revision: 9, messages: [] }));
+  await send('After clear'); expect(pending[1].request.historyRevision).toBe(9); expect(scopes).toEqual(['A']);
+  await answer(0, 'Late old answer'); expect(state.pending).toBe(true);
+  await answer(1, 'Current answer'); expect(state.messages.map(m => m.content)).toEqual(['After clear', 'Current answer']);
+});
+
+test('failed clear blocks sending and reopening restores the retained saved history', async () => {
+  transport.history = async meetingId => ({ meetingId, revision: 2, messages: [{ role: 'assistant', content: 'Retained answer' }] });
+  transport.clear = async () => { throw new Error('synthetic storage failure'); };
+  await show('A'); await act(async () => state.reset());
+  expect(state.error).toContain('Could not clear'); await send(); expect(pending).toHaveLength(0);
+  await show('A', false); await show('A'); expect(state.messages[0].content).toBe('Retained answer');
+});
+
+test('a late A clear cannot erase the newly loaded B conversation', async () => {
+  let finish!: (history: any) => void;
+  transport.clear = () => new Promise(resolve => { finish = resolve; });
+  transport.history = async meetingId => ({ meetingId, revision: 4, messages: [{ role: 'assistant', content: `${meetingId} saved` }] });
+  await show('A'); await act(async () => { void state.reset(); }); await show('B');
+  await act(async () => finish({ meetingId: 'A', revision: 5, messages: [] }));
+  expect(state.messages[0].content).toBe('B saved'); expect(state.revision).toBe(4);
+});
+
+test('Stop reloads the durable revision if a reply completed just before cancellation', async () => {
+  await show('A'); await send();
+  transport.history = async meetingId => ({ meetingId, revision: 1, messages: [{ role: 'assistant', content: 'Completed before Stop' }] });
+  await act(async () => state.stop()); await answer(0, 'Late UI completion');
+  expect(state.messages.map(m => m.content)).toEqual(['Completed before Stop']);
+  await send('Next question'); expect(pending[1].request.historyRevision).toBe(1);
+});
+
+test('wrong-scope saved history is rejected before enabling requests', async () => {
+  transport.history = async () => ({ meetingId: 'foreign', revision: 0, messages: [{ role: 'assistant', content: 'Foreign saved content' }] });
+  await show('A'); expect(state.messages).toEqual([]); expect(state.error).toBeTruthy();
+  await send(); expect(pending).toHaveLength(0);
+});
+
+
+test('reports successful clear truthfully when model settings fail to reload', async () => {
+  await show('A');
+  transport.configuration = async () => { throw new Error('synthetic model configuration failure'); };
+  transport.clear = async meetingId => ({ meetingId, revision: 8, messages: [] });
+  await act(async () => state.reset());
+  expect(state.messages).toEqual([]); expect(state.revision).toBe(8);
+  expect(state.error).toContain('Saved chat cleared');
+  await send(); expect(pending).toHaveLength(0);
+});
+
+
+test('saved conversations stay readable when current model settings are unavailable', async () => {
+  transport.history = async meetingId => ({ meetingId, revision: 3, messages: [{ role: 'assistant', content: 'Saved answer remains readable' }] });
+  transport.configuration = async () => { throw new Error('No configured model'); };
+  await show('A'); expect(state.messages[0].content).toBe('Saved answer remains readable');
+  expect(state.configuration).toBeNull(); expect(state.error).toContain('Choose a model');
+  await send(); expect(pending).toHaveLength(0);
 });

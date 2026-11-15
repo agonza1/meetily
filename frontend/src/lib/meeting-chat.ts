@@ -6,6 +6,7 @@ export type ChatConfiguration = {
   requiresProviderConfirmation: boolean;
 };
 export type ChatMessage = {
+  id?: string;
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
@@ -15,6 +16,7 @@ export type ChatMessage = {
 };
 export type ChatRequest = {
   requestId: string;
+  historyRevision: number;
   meetingId: string;
   query: string;
   historyMeetingId: string;
@@ -28,8 +30,11 @@ export type ChatResponse = {
   provider: string;
   model: string;
   contextTruncated: boolean;
+  historyRevision: number;
+  createdAt: string;
   sources?: ChatSource[];
 };
+export type ChatHistory = { meetingId: string; revision: number; messages: ChatMessage[] };
 export const chatByteLength = (text: string) => new TextEncoder().encode(text).length;
 
 // Retain complete recent messages; never split UTF-8 or label another scope's history as current.

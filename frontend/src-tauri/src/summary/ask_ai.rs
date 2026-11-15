@@ -4,7 +4,10 @@ use super::{
     chat_context,
     llm_client::{generate_summary, LLMProvider},
 };
-use crate::database::{models::Setting, repositories::setting::SettingsRepository};
+use crate::database::{
+    models::Setting,
+    repositories::{meeting_chat, setting::SettingsRepository},
+};
 use crate::state::AppState;
 use futures_util::TryStreamExt;
 use reqwest::Client;
@@ -44,6 +47,100 @@ pub struct ChatResponse {
     pub model: String,
     pub context_truncated: bool,
     pub sources: Vec<chat_context::Source>,
+    pub history_revision: i64,
+    pub created_at: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavedChatMessage {
+    id: String,
+    role: &'static str,
+    content: String,
+    timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    context_truncated: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sources: Option<Vec<chat_context::Source>>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatHistory {
+    meeting_id: String,
+    revision: i64,
+    messages: Vec<SavedChatMessage>,
+}
+fn history_error(error: meeting_chat::HistoryError) -> String {
+    match error {
+        meeting_chat::HistoryError::Missing => "This meeting is no longer available.",
+        meeting_chat::HistoryError::Changed => {
+            "This conversation or transcript changed. Reopen chat to load its saved history."
+        }
+        meeting_chat::HistoryError::Cancelled => "Chat stopped.",
+        meeting_chat::HistoryError::Database(_) => {
+            "Could not read or save this meeting's chat. Reopen chat to retry."
+        }
+    }
+    .to_string()
+}
+async fn saved_history(pool: &SqlitePool, meeting_id: &str) -> Result<ChatHistory, String> {
+    chat_context::validate_request(meeting_id, "history", None, &[])?;
+    let saved = meeting_chat::load(pool, meeting_id)
+        .await
+        .map_err(history_error)?;
+    let mut messages = Vec::new();
+    for exchange in saved.exchanges {
+        let sources = serde_json::from_str(&exchange.sources_json).map_err(|_| {
+            "Saved chat sources could not be read. Clear this meeting's saved chat to start again."
+        })?;
+        messages.push(SavedChatMessage {
+            id: format!("{}-user", exchange.request_id),
+            role: "user",
+            content: exchange.question,
+            timestamp: exchange.created_at.clone(),
+            model: None,
+            context_truncated: None,
+            sources: None,
+        });
+        messages.push(SavedChatMessage {
+            id: format!("{}-assistant", exchange.request_id),
+            role: "assistant",
+            content: exchange.answer,
+            timestamp: exchange.created_at,
+            model: Some(format!("{} · {}", exchange.provider, exchange.model)),
+            context_truncated: Some(exchange.context_truncated),
+            sources: Some(sources),
+        });
+    }
+    Ok(ChatHistory {
+        meeting_id: meeting_id.to_string(),
+        revision: saved.revision,
+        messages,
+    })
+}
+#[tauri::command]
+pub async fn api_get_meeting_chat_history(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<ChatHistory, String> {
+    saved_history(state.db_manager.pool(), &meeting_id).await
+}
+#[tauri::command]
+pub async fn api_clear_meeting_chat_history(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<ChatHistory, String> {
+    chat_context::validate_request(&meeting_id, "history", None, &[])?;
+    let revision = meeting_chat::clear(state.db_manager.pool(), &meeting_id)
+        .await
+        .map_err(history_error)?;
+    Ok(ChatHistory {
+        meeting_id,
+        revision,
+        messages: Vec::new(),
+    })
 }
 
 struct ActiveRequest {
@@ -222,6 +319,7 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     request_id: String,
+    history_revision: i64,
     query: String,
     history_meeting_id: Option<String>,
     history: Vec<ChatTurn>,
@@ -247,7 +345,27 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
             "Confirm sending transcript text to the configured provider for this question.".into(),
         );
     }
-    let retrieval_query = history
+    // Read native persisted context; callers cannot inject a different stored conversation.
+    let saved = saved_history(pool, &meeting_id).await?;
+    if saved.revision != history_revision {
+        return Err(history_error(meeting_chat::HistoryError::Changed));
+    }
+    let mut bytes = 0;
+    let mut saved_turns = Vec::new();
+    for message in saved
+        .messages
+        .iter()
+        .rev()
+        .take(chat_context::MAX_HISTORY_TURNS)
+    {
+        if bytes + message.content.len() > chat_context::MAX_HISTORY_BYTES {
+            break;
+        }
+        bytes += message.content.len();
+        saved_turns.push(message);
+    }
+    saved_turns.reverse();
+    let retrieval_query = saved_turns
         .iter()
         .rev()
         .find(|t| t.role == "user")
@@ -294,7 +412,7 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
         "Selected meeting transcript:\n{}\n\nConversation history:\n",
         context.text
     );
-    for turn in &history {
+    for turn in &saved_turns {
         prompt.push_str(&format!("{}: {}\n", turn.role, turn.content));
     }
     prompt.push_str(&format!("\nQuestion: {}", query.trim()));
@@ -337,6 +455,25 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
     if answer.trim().is_empty() {
         return Err("The selected model returned no visible answer. Try again.".into());
     }
+    let sources_json =
+        serde_json::to_string(&sources).map_err(|_| "Could not save transcript sources.")?;
+    let (history_revision, created_at) = meeting_chat::append(
+        pool,
+        &meeting_id,
+        history_revision,
+        meeting_chat::NewExchange {
+            request_id: &request_id,
+            question: query.trim(),
+            answer: &answer,
+            provider: &config.public.provider,
+            model: &config.model,
+            sources_json: &sources_json,
+            context_truncated: context.truncated,
+        },
+        &cancellation,
+    )
+    .await
+    .map_err(history_error)?;
     Ok(ChatResponse {
         answer: chat_context::utf8_prefix(&answer, 32_000).to_string(),
         meeting_id,
@@ -344,6 +481,8 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
         model: config.model,
         context_truncated: context.truncated,
         sources,
+        history_revision,
+        created_at,
     })
 }
 
