@@ -513,8 +513,9 @@ const Sidebar: React.FC = () => {
               <button
                 onClick={() => {
                   if (isCollapsed) toggleCollapse();
-                  toggleFolder('meetings');
+                  setExpandedFolders(current => new Set(current).add('meetings'));
                 }}
+                aria-label="Meeting Notes"
                 className={`p-2 rounded-lg transition-colors duration-150 ${isMeetingPage ? 'bg-gray-100' : 'hover:bg-gray-100'
                   }`}
               >
