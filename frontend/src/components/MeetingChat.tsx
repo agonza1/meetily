@@ -4,7 +4,8 @@
 // pinned source b86d08999efbd6ee6e8257f764f9a837fc6de7de.
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Copy, RotateCcw } from 'lucide-react';
+import { ArrowUp, Copy, RotateCcw, X } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
@@ -17,14 +18,13 @@ export function MeetingChatAnswer({ content }: { content: string }) {
 }
 
 const suggestions = [
-  ['Key decisions', 'Summarize the key decisions made in this meeting'],
-  ['Action items', 'What are the action items, owners and deadlines?'],
-  ['Topics', 'What topics were discussed in this meeting?'],
-  ['Quick summary', 'Give a quick high-level summary of the discussions'],
+  ['What was decided?', 'What was decided in this meeting?'],
+  ['List action items', 'List the action items from this meeting. Include owners and deadlines only if stated.'],
 ];
 
 export function MeetingChat({ meetingId, transport }: { meetingId: string; transport?: ChatTransport }) {
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const chat = useMeetingChat(meetingId, true, transport);
   const [input, setInput] = useState('');
   const [confirmed, setConfirmed] = useState(false);
@@ -39,7 +39,15 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     setInput(''); setConfirmed(false); setCopiedId(null);
     return () => { epoch.current++; if (copyTimer.current) clearTimeout(copyTimer.current); };
   }, [meetingId, chat.configuration?.configurationId]);
-  useEffect(() => { endRef.current?.scrollIntoView({ block: 'nearest' }); }, [chat.messages.length, chat.pending]);
+  useEffect(() => { setOpen(false); }, [meetingId]);
+  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'nearest' }); }, [open, chat.messages.length, chat.pending]);
+  function changeOpen(next: boolean) {
+    setOpen(next);
+    if (!next) {
+      epoch.current++; setConfirmed(false);
+      if (chat.pending) void chat.stop();
+    }
+  }
   async function send() {
     const version = epoch.current;
     if (await chat.send(input, confirmed) && epoch.current === version) { setInput(''); setConfirmed(false); }
@@ -54,12 +62,20 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
       copyTimer.current = setTimeout(() => setCopiedId(null), 2000);
     } catch { if (version === epoch.current) toast.error('Could not copy the response'); }
   }
-  return <section aria-label="Ask about this meeting" className="shrink-0 max-h-[60%] min-h-0 flex flex-col gap-2 border-t border-gray-200 bg-white p-3">
+  return <div className="absolute bottom-5 right-5 z-30 w-[calc(100%-2.5rem)] max-w-md">
+    <Popover open={open} onOpenChange={changeOpen}>
+      <PopoverTrigger asChild>
+        <button type="button" aria-label="Ask anything about this meeting" tabIndex={open ? -1 : 0} className={'w-full rounded-full border border-gray-200 bg-gray-50 px-4 py-3 text-left text-sm text-gray-500 shadow-md hover:bg-white ' + (open ? 'invisible' : '')}>Ask anything…</button>
+      </PopoverTrigger>
+      {open && <PopoverContent side="top" align="end" sideOffset={8} aria-label="Ask about this meeting" onOpenAutoFocus={event => { if (inputRef.current && !inputRef.current.disabled) { event.preventDefault(); inputRef.current.focus(); } }} className="flex max-h-[min(32rem,var(--radix-popover-content-available-height))] w-96 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-y-auto rounded-xl bg-white p-4 shadow-lg">
     <div className="flex items-center justify-between gap-2">
       <h2 className="text-sm font-semibold text-gray-800">Ask about this meeting</h2>
+      <div className="flex items-center gap-2">
       {chat.messages.length > 0 && <button type="button" title="Clear saved chat" aria-label="Clear saved chat" className="p-1 text-gray-500 hover:text-gray-900" onClick={() => {
         epoch.current++; void chat.reset(); setInput(''); setConfirmed(false); setCopiedId(null);
       }}><RotateCcw size={15} /></button>}
+      <button type="button" aria-label="Close meeting chat" title={chat.pending ? 'Close and stop generation' : 'Close'} onClick={() => changeOpen(false)} className="rounded p-1 text-gray-500 hover:bg-gray-100 hover:text-gray-900"><X size={16} /></button>
+      </div>
     </div>
     {chat.messages.length > 0 && <div role="log" aria-label="Meeting conversation" aria-live="polite" className="min-h-0 max-h-[28vh] overflow-y-auto space-y-3 text-sm">
       {chat.messages.map((message, index) => {
@@ -84,6 +100,7 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
       <div ref={endRef} />
     </div>}
     {chat.pending && <p role="status" className="text-xs text-gray-500">Generating answer…</p>}
+    <p className="text-sm text-gray-600">Ask a specific question about this transcript.</p>
     <div className="flex flex-wrap gap-1.5" aria-label="Suggested questions">
       {suggestions.map(([label, query]) => <button key={label} type="button" disabled={chat.pending} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-blue-50 disabled:opacity-50" onClick={() => { setInput(query); inputRef.current?.focus(); }}>{label}</button>)}
     </div>
@@ -92,15 +109,16 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
       <input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} />
       Allow sending this meeting's transcript and chat context to the configured {chat.configuration.provider} endpoint for this question.
     </label>}
-    <form className="flex items-end gap-2" onSubmit={event => { event.preventDefault(); void send(); }}>
-      <textarea ref={inputRef} rows={2} maxLength={4000} aria-label="Question about this meeting" placeholder="Ask a question about this meeting…" value={input} onChange={event => setInput(event.target.value)} disabled={chat.pending || !chat.configuration} className="min-w-0 flex-1 resize-y rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50" />
-      {chat.pending ? <button type="button" className="rounded-lg border px-3 py-2 text-sm" onClick={() => { epoch.current++; void chat.stop(); setConfirmed(false); }}>Stop generating</button>
-        : <button type="submit" title="Send question" aria-label="Send question" disabled={!input.trim() || !canSend} className="rounded-lg bg-blue-600 p-2.5 text-white hover:bg-blue-700 disabled:opacity-50"><ArrowUp size={18} /></button>}
+    <form className="relative" onSubmit={event => { event.preventDefault(); void send(); }}>
+      <textarea ref={inputRef} rows={3} maxLength={4000} aria-label="Question about this meeting" placeholder="Ask anything…" value={input} onChange={event => setInput(event.target.value)} disabled={chat.pending || !chat.configuration} className="w-full resize-none rounded-xl border border-gray-200 px-3 pb-11 pt-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50" />
+      {chat.pending ? <button type="button" className="absolute bottom-3 right-2 rounded-lg border bg-white px-3 py-1.5 text-sm" onClick={() => { epoch.current++; void chat.stop(); setConfirmed(false); }}>Stop generating</button>
+        : <button type="submit" title="Send question" aria-label="Send question" disabled={!input.trim() || !canSend} className="absolute bottom-3 right-2 rounded-full bg-blue-600 p-2 text-white hover:bg-blue-700 disabled:opacity-50"><ArrowUp size={18} /></button>}
     </form>
-    <div className="flex flex-wrap items-center justify-between gap-1 text-[11px] text-gray-500">
-      <span>{chat.configuration ? `${chat.configuration.provider === 'builtin-ai' ? 'Built-in AI' : chat.configuration.provider} · ${chat.configuration.model}${chat.configuration.requiresProviderConfirmation ? '' : ' · On this Mac'}` : 'Choose a model in Settings'}</span>
-      <button type="button" onClick={() => router.push('/settings?tab=summary')} className="text-blue-700">AI settings</button>
+    <div className="flex items-center justify-between gap-2 text-xs text-gray-500">
+      <span title={chat.configuration ? chat.configuration.provider + ' · ' + chat.configuration.model : undefined}>This meeting · {chat.configuration ? chat.configuration.requiresProviderConfirmation ? chat.configuration.provider : 'On this Mac' : 'Choose a model'}</span>
+      {(!chat.configuration || chat.error) && <button type="button" onClick={() => router.push('/settings?tab=summary')} className="text-blue-700">AI settings</button>}
     </div>
-    <p className="text-[11px] text-gray-500">Check answers against their sources. Latest 20 answers saved locally. Clearing chat or editing the transcript removes this history.</p>
-  </section>;
+      </PopoverContent>}
+    </Popover>
+  </div>;
 }

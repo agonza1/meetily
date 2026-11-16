@@ -8,6 +8,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { TranscriptPanel } from '@/components/MeetingDetails/TranscriptPanel';
 import { SummaryPanel } from '@/components/MeetingDetails/SummaryPanel';
+import { MeetingChat } from '@/components/MeetingChat';
 import { MeetingDetailsSplitView, type MeetingDetailsTab } from '@/components/MeetingDetails/MeetingDetailsSplitView';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 
@@ -57,6 +58,8 @@ export default function PageContent({
   });
 
   // State
+  const [isTranscriptEditing, setTranscriptEditing] = useState(false);
+  const [chatVersion, setChatVersion] = useState(0);
   const isRecording = false;
   const [activeTab, setActiveTab] = useState<MeetingDetailsTab>('transcript');
 
@@ -189,9 +192,9 @@ export default function PageContent({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, ease: 'easeOut' }}
-      className="flex flex-col h-screen min-w-0 bg-gray-50"
+      className="relative flex flex-col h-screen min-w-0 bg-gray-50"
     >
-      <div className="flex flex-1 min-w-0 overflow-hidden">
+      <div className="flex flex-1 min-h-0 min-w-0 overflow-hidden pb-20">
         <MeetingDetailsSplitView
           activeTab={activeTab}
           onTabChange={(tab) => {
@@ -217,6 +220,8 @@ export default function PageContent({
               meetingId={meeting.id}
               meetingFolderPath={meeting.folder_path}
               onRefetchTranscripts={onRefetchTranscripts}
+              onEditingChange={setTranscriptEditing}
+              onTranscriptChange={() => setChatVersion(version => version + 1)}
             />
           }
           summary={
@@ -252,6 +257,7 @@ export default function PageContent({
           }
         />
       </div>
+      {!isTranscriptEditing && meetingData.transcripts.length > 0 && <MeetingChat key={[chatVersion, modelConfig.provider, modelConfig.model].join(':')} meetingId={meeting.id} />}
     </motion.div>
   );
 }

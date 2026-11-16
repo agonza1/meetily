@@ -1,7 +1,6 @@
 "use client";
 
 import { Transcript, TranscriptSegmentData } from '@/types';
-import { MeetingChat } from '@/components/MeetingChat';
 import { TranscriptEditor } from './TranscriptEditor';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
@@ -30,6 +29,8 @@ interface TranscriptPanelProps {
   meetingId?: string;
   meetingFolderPath?: string | null;
   onRefetchTranscripts?: () => Promise<void>;
+  onEditingChange?: (editing: boolean) => void;
+  onTranscriptChange?: () => void;
 }
 
 export function TranscriptPanel({
@@ -49,14 +50,16 @@ export function TranscriptPanel({
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
+  onEditingChange,
+  onTranscriptChange,
 }: TranscriptPanelProps) {
   const [editing, setEditing] = useState<TranscriptSegmentData | null>(null);
-  const [chatVersion, setChatVersion] = useState(0);
   const [edits, setEdits] = useState<Record<string, string>>({});
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => { onEditingChange?.(editing !== null); }, [editing, onEditingChange]);
   async function refetch() {
-    setChatVersion(version => version + 1);
+    onTranscriptChange?.();
     await onRefetchTranscripts?.();
   }
   async function save(text: string) {
@@ -117,10 +120,7 @@ export function TranscriptPanel({
         />
       </div>
 
-      {!isRecording && meetingId && convertedSegments.length > 0 && (
-        editing ? <TranscriptEditor key={editing.id} segment={editing} onSave={save} onCancel={() => setEditing(null)} />
-          : <MeetingChat key={chatVersion} meetingId={meetingId} />
-      )}
+      {editing && <TranscriptEditor key={editing.id} segment={editing} onSave={save} onCancel={() => setEditing(null)} />}
     </div>
   );
 }
