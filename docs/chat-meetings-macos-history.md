@@ -35,8 +35,17 @@ The history-only slice above did not qualify visual layout, physical 8-GB hardwa
 
 ## Inline meeting screen
 
-The current meeting screen replaces the summary-context box with **Ask about this meeting**. Suggested questions above the input prefill an editable draft; the arrow on its right sends it. Answers, sources, copy, Stop, clear history and provider confirmation use the existing scoped chat service. The separate Ask meeting buttons, meeting picker and modal are removed.
+The initial inline meeting screen replaced the summary-context box with **Ask about this meeting**. Suggested questions above the input prefill an editable draft; the arrow on its right sends it. Answers, sources, copy, Stop, clear history and provider confirmation use the existing scoped chat service. The separate Ask meeting buttons, meeting picker and modal are removed.
 
 Use the pencil beside a transcript passage to correct it, then Save transcript or Cancel. Saving retains its timestamp, rejects stale edits, clears obsolete chat and reloads the corrected text. Existing summaries remain available; regenerate to include corrections. Editing is unavailable while a summary is generating. No dependency or database migration is added.
 
 Inline UI verification on Apple Silicon macOS: 98 frontend tests and 330 native tests passed (four existing ignored), TypeScript and production frontend build passed. Actual native Gemma E2B checks covered suggestion prefilling, sourced answering, correction from Friday to Monday, regenerated summary and subsequent answer using Monday, Cancel, Stop/draft retention, meeting isolation, clear during generation, and restoration after process restart. Native captures at 1100×700 and 740×650 verified the updated layout. The 15 imported Krisp meetings (1,103 turns) stayed unchanged in their separate user test profile. Physical 8-GB and non-macOS qualification remain outside this slice.
+
+
+## Floating meeting questions
+
+Meeting details now has a floating **Ask anything…** bar. Click it to open a compact popover with **What was decided?** and **List action items**; these prefill the question rather than sending automatically. The launcher stays available on both narrow-screen tabs. Transcript editing temporarily hides it and reloads corrected history afterward.
+
+The existing selected-meeting service, saved answers, source quotations, copy, clear, Stop and remote-provider confirmation remain in use. Escape, outside click or Close dismisses the popup, preserves the draft and cancels unfinished generation. Completed answers restore on reopening. Saved provider/model changes remount the chat configuration. No backend, model default, dependency or schema change is required.
+
+Verification on Apple Silicon macOS: 99 frontend tests passed; TypeScript and the production frontend build passed. The actual Tauri popup passed native checks for focus, Escape/outside closing, retained drafts, two prompts, a real local Gemma E2B sourced answer, close cancellation, transcript correction and both tabs at 740×650. Desktop and narrow native captures are under /Users/alberto/Codex/Evidence/meetily-floating-20261116. All 15 Krisp meetings and 1,103 transcript turns remained in the separate user test profile.

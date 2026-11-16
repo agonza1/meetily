@@ -1,4 +1,4 @@
-import { expect, test } from 'bun:test';
+import { afterAll, expect, mock, test } from 'bun:test';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MeetingChatAnswer } from '../../src/components/MeetingChat';
 
@@ -19,6 +19,19 @@ import { MeetingChat } from '../../src/components/MeetingChat';
 import type { ChatTransport } from '../../src/hooks/useMeetingChat';
 import type { ChatResponse } from '../../src/lib/meeting-chat';
 
+// Keep Radix trigger state real; replace only the DOM portal for renderer tests.
+// Native acceptance exercises the actual portal, Escape/outside close and focus.
+const originalPopover = { ...await import('../../src/components/ui/popover') };
+mock.module('../../src/components/ui/popover', () => ({
+  ...originalPopover, PopoverContent: ({ children, ...props }: any) => <section {...props}>{children}</section>,
+}));
+afterAll(() => mock.module('../../src/components/ui/popover', () => originalPopover));
+async function openChat(view: ReturnType<typeof create>) {
+  const trigger = view.root.findByProps({ 'aria-label': 'Ask anything about this meeting' });
+  if (!trigger.props['aria-expanded']) await act(async () => trigger.props.onClick({ defaultPrevented: false }));
+}
+
+
 test('late A submit cannot erase the draft for B or a reset conversation', async () => {
   let resolve!: (reply: ChatResponse) => void;
   const configuration = { provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false };
@@ -34,6 +47,7 @@ test('late A submit cannot erase the draft for B or a reset conversation', async
       <MeetingChat meetingId="A" transport={transport} />
     </AppRouterContext.Provider>);
   });
+  await openChat(view);
   try {
     const textarea = () => view.root.findByType('textarea');
     await act(async () => textarea().props.onChange({ target: { value: 'Question for A' } }));
@@ -41,6 +55,7 @@ test('late A submit cannot erase the draft for B or a reset conversation', async
     await act(async () => view.update(<AppRouterContext.Provider value={{ push() {} } as any}>
       <MeetingChat meetingId="B" transport={transport} />
     </AppRouterContext.Provider>));
+    await openChat(view);
     await act(async () => textarea().props.onChange({ target: { value: 'New draft for B' } }));
     await act(async () => resolve({ answer: 'Old A reply', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-15T12:00:00Z' }));
     expect(textarea().props.value).toBe('New draft for B');
@@ -71,24 +86,26 @@ test('inline suggestions prefill the composer and sending requires confirmation 
       <MeetingChat meetingId="A" transport={transport} />
     </AppRouterContext.Provider>);
   });
+  await openChat(view);
   const content = () => JSON.stringify(view.toJSON());
   const buttons = () => view.root.findAllByType('button');
   try {
     expect(content()).toContain('saved-model');
     expect(content()).not.toContain('Qwen 3.5 4B');
     expect(view.root.findAllByType('select')).toHaveLength(0);
+    expect(view.root.findByProps({ 'aria-label': 'Suggested questions' }).findAllByType('button').map(b => b.children.join(''))).toEqual(['What was decided?', 'List action items']);
     expect(content()).not.toContain('Ask Your Meetings AI');
-    const suggestion = () => buttons().find(button => button.children.includes('Key decisions'))!;
+    const suggestion = () => buttons().find(button => button.children.includes('What was decided?'))!;
     expect(suggestion().props.disabled).toBe(false);
     await act(async () => suggestion().props.onClick());
-    expect(view.root.findByType('textarea').props.value).toBe('Summarize the key decisions made in this meeting');
+    expect(view.root.findByType('textarea').props.value).toBe('What was decided in this meeting?');
     expect(calls).toHaveLength(0);
     expect(buttons().find(button => button.props.type === 'submit')!.props.disabled).toBe(true);
     await act(async () => view.root.findByType('input').props.onChange({ target: { checked: true } }));
     expect(suggestion().props.disabled).toBe(false);
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ meetingId: 'A', configurationId: 'v2', allowProviderRequest: true, query: 'Summarize the key decisions made in this meeting' });
+    expect(calls[0]).toMatchObject({ meetingId: 'A', configurationId: 'v2', allowProviderRequest: true, query: 'What was decided in this meeting?' });
     expect(content()).toContain('Partial transcript context');
     expect(view.root.findByType('input').props.checked).toBe(false);
     await act(async () => view.root.findByType('textarea').props.onChange({ target: { value: 'Next question' } }));
@@ -116,6 +133,7 @@ test('imported copy control copies the actual answer and drops stale clipboard c
         <MeetingChat meetingId="A" transport={transport} />
       </AppRouterContext.Provider>);
     });
+    await openChat(view);
     const button = (title: string) => view.root.findAllByType('button').find(item => item.props.title === title)!;
     const ask = async () => {
       await act(async () => view.root.findByType('textarea').props.onChange({ target: { value: 'When?' } }));
@@ -150,6 +168,7 @@ test('source disclosure renders native timestamps and quotations as plain text',
   await act(async () => { view = create(<AppRouterContext.Provider value={{ push() {} } as any}>
     <MeetingChat meetingId="A" transport={transport} />
   </AppRouterContext.Provider>); });
+  await openChat(view);
   try {
     await act(async () => view.root.findByType('textarea').props.onChange({ target: { value: 'Who approved the budget?' } }));
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
@@ -175,6 +194,7 @@ test('stopping preserves a new draft after a delayed reply and renews provider c
   await act(async () => { view = create(<AppRouterContext.Provider value={{ push() {} } as any}>
     <MeetingChat meetingId="A" transport={transport} />
   </AppRouterContext.Provider>); });
+  await openChat(view);
   try {
     const textarea = () => view.root.findByType('textarea');
     await act(async () => textarea().props.onChange({ target: { value: 'Old question' } }));
@@ -188,5 +208,39 @@ test('stopping preserves a new draft after a delayed reply and renews provider c
     expect(textarea().props.value).toBe('New draft after Stop');
     expect(JSON.stringify(view.toJSON())).not.toContain('Cancelled reply');
     expect(view.root.findAllByType('button').find(b => b.props.type === 'submit')!.props.disabled).toBe(true);
+  } finally { await act(async () => view.unmount()); }
+});
+
+test('floating launcher preserves a draft, cancels on close and hides stale output on reopen', async () => {
+  let resolve!: (reply: ChatResponse) => void;
+  const cancelled: string[] = [];
+  const transport: ChatTransport = {
+    configuration: async () => ({ provider: 'builtin-ai', model: 'synthetic', configurationId: 'v1', requiresProviderConfirmation: false }),
+    history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
+    clear: async meetingId => ({ meetingId, revision: 1, messages: [] }),
+    ask: () => new Promise(done => { resolve = done; }),
+    cancel: async id => { cancelled.push(id); },
+  };
+  let view!: ReturnType<typeof create>;
+  await act(async () => { view = create(<AppRouterContext.Provider value={{ push() {} } as any}>
+    <MeetingChat meetingId="A" transport={transport} />
+  </AppRouterContext.Provider>); });
+  try {
+    expect(view.root.findAllByType('textarea')).toHaveLength(0);
+    await openChat(view);
+    const textarea = () => view.root.findByType('textarea');
+    const close = () => view.root.findByProps({ 'aria-label': 'Close meeting chat' }).props.onClick();
+    await act(async () => textarea().props.onChange({ target: { value: 'My unsent question' } }));
+    await act(async () => close());
+    expect(view.root.findAllByType('textarea')).toHaveLength(0);
+    await openChat(view);
+    expect(textarea().props.value).toBe('My unsent question');
+    await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+    await act(async () => close());
+    expect(cancelled).toHaveLength(1);
+    await act(async () => resolve({ answer: 'Cancelled answer', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-16T12:00:00Z' }));
+    await openChat(view);
+    expect(textarea().props.value).toBe('My unsent question');
+    expect(JSON.stringify(view.toJSON())).not.toContain('Cancelled answer');
   } finally { await act(async () => view.unmount()); }
 });
