@@ -79,6 +79,37 @@ impl TranscriptsRepository {
         Ok(meeting_id)
     }
 
+    /// Change one passage without altering its timing. Compare the original text to avoid lost edits.
+    pub async fn update_text(
+        pool: &SqlitePool,
+        meeting_id: &str,
+        transcript_id: &str,
+        original: &str,
+        text: &str,
+    ) -> Result<bool, SqlxError> {
+        let mut tx = pool.begin().await?;
+        let changed = sqlx::query(
+            "UPDATE transcripts SET transcript = ? WHERE id = ? AND meeting_id = ? AND transcript = ?",
+        )
+        .bind(text)
+        .bind(transcript_id)
+        .bind(meeting_id)
+        .bind(original)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected()
+            == 1;
+        if changed {
+            sqlx::query("UPDATE meetings SET updated_at = ? WHERE id = ?")
+                .bind(Utc::now())
+                .bind(meeting_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(changed)
+    }
+
     /// Searches for a query string within the transcripts.
     /// It returns a list of matching transcripts with context.
     pub async fn search_transcripts(
@@ -139,5 +170,114 @@ impl TranscriptsRepository {
             }
             None => transcript.chars().take(200).collect(), // Fallback to the start of the transcript
         }
+    }
+}
+
+#[cfg(test)]
+mod edit_tests {
+    use super::*;
+    use crate::database::repositories::meeting_chat;
+    use tokio_util::sync::CancellationToken;
+
+    async fn database() -> SqlitePool {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        for id in ["A", "B"] {
+            sqlx::query(
+                "INSERT INTO meetings(id,title,created_at,updated_at) VALUES(?,?,'2026','2026')",
+            )
+            .bind(id)
+            .bind(id)
+            .execute(&pool)
+            .await
+            .unwrap();
+            sqlx::query("INSERT INTO transcripts(id,meeting_id,transcript,timestamp,audio_start_time,audio_end_time,duration,speaker) VALUES(?,?,'Monday','01:10',70,75,5,'Maya')").bind(id).bind(id).execute(&pool).await.unwrap();
+        }
+        pool
+    }
+
+    #[tokio::test]
+    async fn correction_preserves_timing_and_invalidates_only_its_own_chat() {
+        let pool = database().await;
+        let token = CancellationToken::new();
+        for id in ["A", "B"] {
+            meeting_chat::load(&pool, id).await.unwrap();
+            meeting_chat::append(
+                &pool,
+                id,
+                0,
+                meeting_chat::NewExchange {
+                    request_id: id,
+                    question: "When?",
+                    answer: "Monday",
+                    provider: "builtin-ai",
+                    model: "synthetic",
+                    sources_json: "[]",
+                    context_truncated: false,
+                },
+                &token,
+            )
+            .await
+            .unwrap();
+        }
+        assert!(
+            TranscriptsRepository::update_text(&pool, "A", "A", "Monday", "Friday")
+                .await
+                .unwrap()
+        );
+        let passage: (String,String,f64,f64,f64,String) = sqlx::query_as("SELECT transcript,timestamp,audio_start_time,audio_end_time,duration,speaker FROM transcripts WHERE id='A'").fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            passage,
+            (
+                "Friday".into(),
+                "01:10".into(),
+                70.0,
+                75.0,
+                5.0,
+                "Maya".into()
+            )
+        );
+        let a = meeting_chat::load(&pool, "A").await.unwrap();
+        assert_eq!(a.revision, 2);
+        assert!(a.exchanges.is_empty());
+        assert_eq!(
+            meeting_chat::load(&pool, "B")
+                .await
+                .unwrap()
+                .exchanges
+                .len(),
+            1
+        );
+        assert!(
+            !TranscriptsRepository::update_text(&pool, "A", "A", "Monday", "Stale overwrite")
+                .await
+                .unwrap()
+        );
+        assert!(
+            !TranscriptsRepository::update_text(&pool, "B", "A", "Friday", "Wrong meeting")
+                .await
+                .unwrap()
+        );
+        assert_eq!(meeting_chat::load(&pool, "A").await.unwrap().revision, 2);
+    }
+
+    #[tokio::test]
+    async fn concurrent_edits_do_not_overwrite_a_newer_correction() {
+        let pool = database().await;
+        let (first, second) = tokio::join!(
+            TranscriptsRepository::update_text(&pool, "A", "A", "Monday", "Friday"),
+            TranscriptsRepository::update_text(&pool, "A", "A", "Monday", "Tuesday")
+        );
+        assert_ne!(first.unwrap(), second.unwrap());
+        let unchanged: String =
+            sqlx::query_scalar("SELECT transcript FROM transcripts WHERE id='B'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(unchanged, "Monday");
     }
 }

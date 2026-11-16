@@ -57,7 +57,6 @@ export default function PageContent({
   });
 
   // State
-  const [customPrompt, setCustomPrompt] = useState<string>('');
   const isRecording = false;
   const [activeTab, setActiveTab] = useState<MeetingDetailsTab>('transcript');
 
@@ -201,9 +200,9 @@ export default function PageContent({
           }}
           transcript={
             <TranscriptPanel
+              key={meeting.id}
               transcripts={meetingData.transcripts}
-              customPrompt={customPrompt}
-              onPromptChange={setCustomPrompt}
+              isSummaryGenerating={['processing', 'summarizing', 'regenerating'].includes(summaryGeneration.summaryStatus)}
               onCopyTranscript={copyOperations.handleCopyTranscript}
               onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
               isRecording={isRecording}
@@ -237,7 +236,7 @@ export default function PageContent({
               onSaveModelConfig={handleSaveModelConfig}
               onGenerateSummary={summaryGeneration.handleGenerateSummary}
               onStopGeneration={summaryGeneration.handleStopGeneration}
-              customPrompt={customPrompt}
+              customPrompt=""
               onSaveSummary={meetingData.handleSaveSummary}
               onSummaryChange={meetingData.handleSummaryChange}
               onDirtyChange={meetingData.setIsSummaryDirty}

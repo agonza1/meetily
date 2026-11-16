@@ -1,5 +1,7 @@
 # Selected-meeting chat: macOS slice 1
 
+Historical UI report: the [inline meeting screen](chat-meetings-macos-history.md#inline-meeting-screen) replaces the modal and its entry buttons.
+
 Historical November 13 report. The [November 14 MVP](chat-meetings-macos-mvp.md) supersedes the retrieval, cancellation and model limitations below.
 
 Select **Ask a meeting** in the sidebar, choose a meeting, and ask a question. Meeting details also exposes **Ask meeting**. The dialog reuses the actual AskMeetingsModal presentation from upstream #810: chat bubbles, quick prompts, answer copy, timestamps, loading state and the model/settings footer. It uses transcript excerpts from the selected meeting only. **Open transcript** lets the user check the original text. The model/provider come from the saved Summary settings; chat does not choose a new default or change those settings.

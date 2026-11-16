@@ -27,7 +27,6 @@ import { VisuallyHidden } from "@/components/ui/visually-hidden"
 
 import { MessageToast } from '../MessageToast';
 import Logo from '../Logo';
-import { MeetingChatDialog } from '../MeetingChatDialog';
 import FeedbackLink from '../FeedbackLink';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
@@ -67,7 +66,6 @@ const Sidebar: React.FC = () => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     provider: 'ollama',
     model: '',
@@ -543,7 +541,6 @@ const Sidebar: React.FC = () => {
             </TooltipContent>
           </Tooltip>
 
-          <button type="button" onClick={() => setChatOpen(true)} className="p-2 rounded-lg hover:bg-blue-50" aria-label="Ask a meeting"><span aria-hidden="true">✦</span></button>
           <FeedbackLink isCollapsed={isCollapsed} />
         </div>
       </TooltipProvider>
@@ -814,7 +811,6 @@ const Sidebar: React.FC = () => {
               <Settings className="w-4 h-4 mr-2" />
               <span>Settings</span>
             </button>
-            <button type="button" onClick={() => setChatOpen(true)} className="w-full rounded-lg border px-3 py-2 text-sm mt-1 mb-1">Ask a meeting</button>
             <FeedbackLink isCollapsed={isCollapsed} />
             <div className="w-full flex items-center justify-center px-3 py-1 text-xs text-gray-400">
               v0.5.0
@@ -823,7 +819,6 @@ const Sidebar: React.FC = () => {
         )}
       </div>
 
-      <MeetingChatDialog open={chatOpen} onOpenChange={setChatOpen} currentMeetingId={currentMeeting?.id ?? null} meetings={meetings.map(meeting => ({ id: meeting.id, title: meeting.title }))} />
 
       {/* Confirmation Modal for Delete */}
       <ConfirmationModal

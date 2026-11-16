@@ -1,15 +1,17 @@
 "use client";
 
 import { Transcript, TranscriptSegmentData } from '@/types';
-import { TranscriptView } from '@/components/TranscriptView';
+import { MeetingChat } from '@/components/MeetingChat';
+import { TranscriptEditor } from './TranscriptEditor';
+import { invoke } from '@tauri-apps/api/core';
+import { toast } from 'sonner';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect, useRef } from 'react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
-  customPrompt: string;
-  onPromptChange: (value: string) => void;
+  isSummaryGenerating?: boolean;
   onCopyTranscript: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
@@ -32,8 +34,7 @@ interface TranscriptPanelProps {
 
 export function TranscriptPanel({
   transcripts,
-  customPrompt,
-  onPromptChange,
+  isSummaryGenerating = false,
   onCopyTranscript,
   onOpenMeetingFolder,
   isRecording,
@@ -49,20 +50,38 @@ export function TranscriptPanel({
   meetingFolderPath,
   onRefetchTranscripts,
 }: TranscriptPanelProps) {
+  const [editing, setEditing] = useState<TranscriptSegmentData | null>(null);
+  const [chatVersion, setChatVersion] = useState(0);
+  const [edits, setEdits] = useState<Record<string, string>>({});
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  async function refetch() {
+    setChatVersion(version => version + 1);
+    await onRefetchTranscripts?.();
+  }
+  async function save(text: string) {
+    if (!editing || !meetingId) return;
+    await invoke('api_update_transcript', { meetingId, transcriptId: editing.id, originalText: editing.text, text });
+    if (!mounted.current) return;
+    setEdits(current => ({ ...current, [editing.id]: text }));
+    toast.success('Transcript saved. Regenerate the summary to include corrections.');
+    try { await refetch(); }
+    catch { toast.warning('Transcript saved. Reopen this meeting to refresh the transcript.'); }
+  }
   // Convert transcripts to segments if pagination is not used but we want virtualization
   const convertedSegments = useMemo(() => {
     if (usePagination && segments) {
-      return segments;
+      return segments.map(segment => edits[segment.id] === undefined ? segment : { ...segment, text: edits[segment.id] });
     }
     // Convert transcripts to segments for virtualization
     return transcripts.map(t => ({
       id: t.id,
       timestamp: t.audio_start_time ?? 0,
       endTime: t.audio_end_time,
-      text: t.text,
+      text: edits[t.id] ?? t.text,
       confidence: t.confidence,
     }));
-  }, [transcripts, usePagination, segments]);
+  }, [transcripts, usePagination, segments, edits]);
 
   return (
     <div className="flex h-full min-w-0 w-full bg-white flex-col relative @container">
@@ -74,14 +93,15 @@ export function TranscriptPanel({
           onOpenMeetingFolder={onOpenMeetingFolder}
           meetingId={meetingId}
           meetingFolderPath={meetingFolderPath}
-          onRefetchTranscripts={onRefetchTranscripts}
+          onRefetchTranscripts={refetch}
         />
       </div>
 
       {/* Transcript content - use virtualized view for better performance */}
-      <div className="flex-1 overflow-hidden pb-4">
+      <div className="flex-1 min-h-0 overflow-hidden pb-4">
         <VirtualizedTranscriptView
           segments={convertedSegments}
+          onEdit={meetingId && !isRecording && !isSummaryGenerating ? setEditing : undefined}
           isRecording={isRecording}
           isPaused={false}
           isProcessing={false}
@@ -97,16 +117,9 @@ export function TranscriptPanel({
         />
       </div>
 
-      {/* Custom prompt input at bottom of transcript section */}
-      {!isRecording && convertedSegments.length > 0 && (
-        <div className="p-1 border-t border-gray-200">
-          <textarea
-            placeholder="Add context for AI summary. For example people involved, meeting overview, objective etc..."
-            className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm min-h-[80px] resize-y"
-            value={customPrompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-          />
-        </div>
+      {!isRecording && meetingId && convertedSegments.length > 0 && (
+        editing ? <TranscriptEditor key={editing.id} segment={editing} onSave={save} onCancel={() => setEditing(null)} />
+          : <MeetingChat key={chatVersion} meetingId={meetingId} />
       )}
     </div>
   );
