@@ -31,4 +31,12 @@ On Apple Silicon macOS:
 - Model settings unavailable: saved messages remain readable, and generation stays disabled. This behavior is covered by the hook tests.
 - The temporary UI harness was removed from source and the final binary before publication. Evidence is scoped under `/Users/alberto/Codex/Evidence/meetily-history-20261115`.
 
-Background WebKit screenshot/layout limitations from PR #1 remain; no visual layout approval, physical 8-GB qualification, installer release or production installation is claimed.
+The history-only slice above did not qualify visual layout, physical 8-GB hardware, an installer release or production installation.
+
+## Inline meeting screen
+
+The current meeting screen replaces the summary-context box with **Ask about this meeting**. Suggested questions above the input prefill an editable draft; the arrow on its right sends it. Answers, sources, copy, Stop, clear history and provider confirmation use the existing scoped chat service. The separate Ask meeting buttons, meeting picker and modal are removed.
+
+Use the pencil beside a transcript passage to correct it, then Save transcript or Cancel. Saving retains its timestamp, rejects stale edits, clears obsolete chat and reloads the corrected text. Existing summaries remain available; regenerate to include corrections. Editing is unavailable while a summary is generating. No dependency or database migration is added.
+
+Inline UI verification on Apple Silicon macOS: 98 frontend tests and 330 native tests passed (four existing ignored), TypeScript and production frontend build passed. Actual native Gemma E2B checks covered suggestion prefilling, sourced answering, correction from Friday to Monday, regenerated summary and subsequent answer using Monday, Cancel, Stop/draft retention, meeting isolation, clear during generation, and restoration after process restart. Native captures at 1100×700 and 740×650 verified the updated layout. The 15 imported Krisp meetings (1,103 turns) stayed unchanged in their separate user test profile. Physical 8-GB and non-macOS qualification remain outside this slice.

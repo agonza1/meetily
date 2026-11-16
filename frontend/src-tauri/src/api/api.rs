@@ -953,6 +953,35 @@ pub async fn api_save_meeting_title<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn api_update_transcript(
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+    transcript_id: String,
+    original_text: String,
+    text: String,
+) -> Result<(), String> {
+    if text.trim().is_empty() || text.len() > 256_000 {
+        return Err("Enter transcript text, or shorten this passage before saving.".into());
+    }
+    match TranscriptsRepository::update_text(
+        state.db_manager.pool(),
+        &meeting_id,
+        &transcript_id,
+        &original_text,
+        &text,
+    )
+    .await
+    {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(
+            "This transcript changed or is unavailable. Reopen this meeting before editing it."
+                .into(),
+        ),
+        Err(_) => Err("Could not save this transcript. Try again.".into()),
+    }
+}
+
+#[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,

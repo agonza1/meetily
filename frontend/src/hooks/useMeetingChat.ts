@@ -53,7 +53,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
           configuration: configuration.status === 'fulfilled' ? configuration.value : null,
           error: configuration.status === 'rejected' ? 'Saved chat loaded. Choose a model in Settings to continue.' : null }));
       }).catch(() => {
-        if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not load saved chat or model settings. Reopen chat to retry.' }));
+        if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not load saved chat or model settings. Reopen this meeting to retry.' }));
       });
     }
     return () => { epoch.current++; cancelActive(); };
@@ -72,9 +72,9 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       if (history.meetingId !== meetingId || !Number.isSafeInteger(history.revision) || history.revision < 0 || history.messages.length) throw new Error('Unexpected clear result');
       if (epoch.current === version) setSnapshot({ ...empty(meetingId), revision: history.revision,
         configuration: configuration.status === 'fulfilled' ? configuration.value : null,
-        error: configuration.status === 'rejected' ? 'Saved chat cleared. Could not load model settings; reopen chat to retry.' : null });
+        error: configuration.status === 'rejected' ? 'Saved chat cleared. Could not load model settings; reopen this meeting to retry.' : null });
     } catch {
-      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not clear saved chat. Reopen chat to reload it.' }));
+      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not clear saved chat. Reopen this meeting to reload it.' }));
     }
   }, [meetingId, open, transport, cancelActive]);
 
@@ -140,7 +140,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       if (history.meetingId !== meetingId || !Number.isSafeInteger(history.revision) || history.revision < 0) throw new Error('Unexpected history scope');
       if (epoch.current === version) setSnapshot(current => ({ ...current, messages: history.messages, revision: history.revision }));
     } catch {
-      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not reload saved chat after stopping. Reopen chat to retry.' }));
+      if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not reload saved chat after stopping. Reopen this meeting to retry.' }));
     }
   };
   return { ...visible, send, reset, stop };

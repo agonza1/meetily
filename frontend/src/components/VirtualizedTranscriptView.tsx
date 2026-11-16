@@ -9,10 +9,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 import { RecordingStatusBar } from "./RecordingStatusBar";
 import { motion, AnimatePresence } from "framer-motion";
 import { TranscriptSegmentData } from "@/types";
+import { Pencil } from "lucide-react";
 
 export interface VirtualizedTranscriptViewProps {
     /** Transcript segments to display */
     segments: TranscriptSegmentData[];
+    onEdit?: (segment: TranscriptSegmentData) => void;
     /** Whether recording is in progress */
     isRecording?: boolean;
     /** Whether recording is paused */
@@ -71,6 +73,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence,
     isStreaming,
     showConfidence,
+    onEdit,
 }: {
     id: string;
     timestamp: number;
@@ -78,12 +81,13 @@ const TranscriptSegment = memo(function TranscriptSegment({
     confidence?: number;
     isStreaming: boolean;
     showConfidence: boolean;
+    onEdit?: () => void;
 }) {
-    const displayText = cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
+    const displayText = onEdit ? text : cleanStopWords(text) || (text.trim() === '' ? '[Silence]' : text);
 
     return (
         <div id={`segment-${id}`} className="mb-3">
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-2 group">
                 <Tooltip>
                     <TooltipTrigger>
                         <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
@@ -105,6 +109,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
                         <p className="text-base text-gray-800 leading-relaxed">{displayText}</p>
                     )}
                 </div>
+                {onEdit && <button type="button" title="Edit transcript" aria-label={`Edit transcript at ${formatRecordingTime(timestamp)}`} onClick={onEdit} className="shrink-0 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-800 focus:text-blue-600"><Pencil size={14} /></button>}
             </div>
         </div>
     );
@@ -112,6 +117,7 @@ const TranscriptSegment = memo(function TranscriptSegment({
 
 export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps> = ({
     segments,
+    onEdit,
     isRecording = false,
     isPaused = false,
     isProcessing = false,
@@ -296,6 +302,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        onEdit={onEdit ? () => onEdit(segment) : undefined}
                                     />
                                 </div>
                             );
@@ -352,6 +359,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                         confidence={segment.confidence}
                                         isStreaming={isStreaming}
                                         showConfidence={showConfidence}
+                                        onEdit={onEdit ? () => onEdit(segment) : undefined}
                                     />
                                 </motion.div>
                             );
