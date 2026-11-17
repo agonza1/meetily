@@ -94,6 +94,7 @@ export function SummaryGeneratorButtonGroup({
           }}
           title="Stop summary generation"
         >
+          <Loader2 size={16} className="animate-spin" aria-hidden="true" />
           <Square size={18} fill="currentColor" />
           <span className="hidden @[24rem]:inline">Stop</span>
         </Button>

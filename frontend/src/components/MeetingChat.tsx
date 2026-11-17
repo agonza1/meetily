@@ -4,7 +4,7 @@
 // pinned source b86d08999efbd6ee6e8257f764f9a837fc6de7de.
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowUp, Copy, Maximize2, Minimize2, RotateCcw, Square, X } from 'lucide-react';
+import { ArrowUp, Copy, Loader2, Maximize2, Minimize2, RotateCcw, Square, X } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -104,7 +104,7 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     </div>}
     {!chat.messages.length && <div className="flex-1" />}
     <div className="shrink-0 space-y-2">
-    {chat.pending && <p role="status" className="text-xs text-gray-500">Generating answer…</p>}
+    {chat.pending && <p role="status" aria-label="Generating answer" className="flex items-center gap-2 text-xs text-gray-500"><Loader2 size={14} className="animate-spin" aria-hidden="true" />Generating answer…</p>}
     {!chat.messages.length && <p className="text-xs text-gray-500">Generate a summary for instant decisions and action items.</p>}
     {!chat.pending && <div className="flex flex-wrap gap-1.5" aria-label="Suggested questions">
       {suggestions.map(([label, query]) => <button key={label} type="button" disabled={chat.pending} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-blue-50 disabled:opacity-50" onClick={() => { setInput(query); inputRef.current?.focus(); }}>{label}</button>)}
