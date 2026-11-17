@@ -200,7 +200,7 @@ test('stopping preserves a new draft after a delayed reply and renews provider c
     await act(async () => textarea().props.onChange({ target: { value: 'Old question' } }));
     await act(async () => view.root.findByType('input').props.onChange({ target: { checked: true } }));
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
-    await act(async () => view.root.findAllByType('button').find(b => b.children.includes('Stop generating'))!.props.onClick());
+    await act(async () => view.root.findAllByType('button').find(b => b.props['aria-label'] === 'Stop generating')!.props.onClick());
     expect(cancelled).toHaveLength(1);
     expect(view.root.findByType('input').props.checked).toBe(false);
     await act(async () => textarea().props.onChange({ target: { value: 'New draft after Stop' } }));
@@ -231,11 +231,19 @@ test('floating launcher preserves a draft, cancels on close and hides stale outp
     const textarea = () => view.root.findByType('textarea');
     const close = () => view.root.findByProps({ 'aria-label': 'Close meeting chat' }).props.onClick();
     await act(async () => textarea().props.onChange({ target: { value: 'My unsent question' } }));
+    await act(async () => view.root.findByProps({ 'aria-label': 'Expand meeting chat' }).props.onClick());
+    expect(view.root.findByProps({ 'aria-label': 'Collapse meeting chat' }).props['aria-expanded']).toBe(true);
+    expect(textarea().props.value).toBe('My unsent question');
     await act(async () => close());
     expect(view.root.findAllByType('textarea')).toHaveLength(0);
     await openChat(view);
     expect(textarea().props.value).toBe('My unsent question');
+    expect(view.root.findByProps({ 'aria-label': 'Expand meeting chat' }).props['aria-expanded']).toBe(false);
     await act(async () => view.root.findByType('form').props.onSubmit({ preventDefault() {} }));
+    await act(async () => view.root.findByProps({ 'aria-label': 'Expand meeting chat' }).props.onClick());
+    await act(async () => view.root.findByProps({ 'aria-label': 'Collapse meeting chat' }).props.onClick());
+    expect(cancelled).toHaveLength(0);
+    expect(textarea().props.value).toBe('My unsent question');
     await act(async () => close());
     expect(cancelled).toHaveLength(1);
     await act(async () => resolve({ answer: 'Cancelled answer', meetingId: 'A', provider: 'builtin-ai', model: 'synthetic', contextTruncated: false, historyRevision: 1, createdAt: '2026-11-16T12:00:00Z' }));
