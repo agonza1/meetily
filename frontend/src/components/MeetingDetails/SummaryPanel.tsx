@@ -242,7 +242,7 @@ export function SummaryPanel({
   );
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden h-full w-full @container">
+    <div aria-busy={isSummaryLoading} className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden h-full w-full @container">
       {/* Top-level actions — always visible, same pattern as TranscriptPanel */}
       <div className="p-4 border-b border-gray-200">
         <div className="flex items-center justify-center w-full min-w-0 gap-2 flex-wrap">
@@ -280,9 +280,9 @@ export function SummaryPanel({
       </div>
 
       {isSummaryLoading ? (
-        <div className="flex items-center justify-center flex-1">
+        <div role="status" aria-live="polite" aria-label="Generating summary" className="flex items-center justify-center flex-1">
           <div className="text-center">
-            <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
+            <div aria-hidden="true" className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
             <p className="text-gray-600">Generating AI Summary...</p>
           </div>
         </div>
