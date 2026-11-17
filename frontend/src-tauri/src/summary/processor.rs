@@ -499,6 +499,9 @@ pub(crate) async fn generate_meeting_summary(
                 final_user_prompt.push_str(custom_prompt);
                 final_user_prompt.push_str("\n</user_context>");
             }
+            if template_id == "standard_meeting" {
+                final_user_prompt.push_str("\n\nFinal extraction check: Re-read the closing turns for firm commitments. In Action Items, keep the COMPLETE final relative deadline, including any time of day and latest/earliest qualifier. For a request addressed to a named participant, use the recipient as the requested owner, not automatically the speaker; distinguish requests from accepted commitments. Keep the current remaining timeframe separate from an earlier original timeframe. Preparing a proposal does not mean the commercial engagement was approved. Output only the report.\n");
+            }
             let completion = generate_summary(
                 client, provider, model_name, api_key, &final_system_prompt, &final_user_prompt,
                 ollama_endpoint, custom_openai_endpoint, max_tokens, temperature, top_p,
