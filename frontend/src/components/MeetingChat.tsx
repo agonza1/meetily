@@ -100,7 +100,7 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
       <div ref={endRef} />
     </div>}
     {chat.pending && <p role="status" className="text-xs text-gray-500">Generating answer…</p>}
-    <p className="text-sm text-gray-600">Ask a specific question about this transcript.</p>
+    <p className="text-sm text-gray-600">Generate a summary for instant decisions and action items.</p>
     <div className="flex flex-wrap gap-1.5" aria-label="Suggested questions">
       {suggestions.map(([label, query]) => <button key={label} type="button" disabled={chat.pending} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-blue-50 disabled:opacity-50" onClick={() => { setInput(query); inputRef.current?.focus(); }}>{label}</button>)}
     </div>

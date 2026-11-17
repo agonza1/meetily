@@ -4,17 +4,17 @@
   "sections": [
     {
       "title": "Summary",
-      "instruction": "Provide a brief executive summary of the entire meeting, preserving final outcomes and explicit corrections.",
+      "instruction": "Provide a brief executive summary of the entire meeting, preserving final outcomes and explicit corrections. Preserve exact relative timeframes and their current versus original meaning; do not round durations.",
       "format": "paragraph"
     },
     {
       "title": "Key Decisions",
-      "instruction": "List only final agreed decisions. Distinguish proposals and rejected or superseded decisions. Do not turn suggestions into commitments.",
+      "instruction": "List only final agreed decisions. Distinguish proposals and rejected or superseded decisions. Do not turn suggestions into commitments. Separate the agreed initial assessment or next step from any commercial engagement still awaiting approval.",
       "format": "list"
     },
     {
       "title": "Action Items",
-      "instruction": "List agreed tasks, including tasks whose owner or due date was not supplied. Use Not specified for missing owners or dates. Never infer assignments or convert relative dates into calendar dates. Include transcript references and timestamps only when supplied in the source; otherwise use Not supplied. Every agreed task MUST have its own table row, even with no owner or deadline; mentioning an unassigned task only in Decisions or Highlights is insufficient. Owner and Due are optional fields, never prerequisites for a task. Put only the supplied source ID in Reference Transcript Segment and only its exact supplied time in Segment Time stamp.",
+      "instruction": "List agreed tasks, including tasks whose owner or due date was not supplied. Use Not specified for missing owners or dates. Never infer assignments or convert relative dates into calendar dates. Include transcript references and timestamps only when supplied in the source; otherwise use Not supplied. Every agreed task MUST have its own table row, even with no owner or deadline; mentioning an unassigned task only in Decisions or Highlights is insufficient. Owner and Due are optional fields, never prerequisites for a task. Put only the supplied source ID in Reference Transcript Segment and only its exact supplied time in Segment Time stamp. Preparing or sending a proposal is itself a task, even while accepting that proposal remains undecided. Include explicit requests to share diagnostics or prior work. Resolve pronouns using the preceding discussion and carry later confirmed owners or relative deadlines back to the relevant task. Copy the complete final relative deadline, including time of day. Assign addressed requests to their named recipient, not automatically to the speaker, and mark unconfirmed requests as requested.",
       "format": "list",
       "item_format": "| **Owner** | Task | Due | Reference Transcript Segment | Segment Time stamp |\n| --- | --- | --- | --- | --- |"
     },

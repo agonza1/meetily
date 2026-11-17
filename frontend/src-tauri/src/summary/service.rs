@@ -83,7 +83,7 @@ struct EnglishSummaryCache {
     output_language: Option<String>,
 }
 
-fn stable_text_fingerprint(text: &str) -> String {
+pub(crate) fn stable_text_fingerprint(text: &str) -> String {
     const FNV_OFFSET: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
 
@@ -126,7 +126,7 @@ fn build_summary_cache_source(
     }
 }
 
-fn template_cache_fingerprint(template: &Template) -> String {
+pub(crate) fn template_cache_fingerprint(template: &Template) -> String {
     let rendered_template = format!(
         "{}\n---SECTION-INSTRUCTIONS---\n{}",
         template.to_markdown_structure(),
