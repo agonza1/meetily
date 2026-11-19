@@ -172,7 +172,6 @@ export default function PageContent({
     }
 
     autoGenerationStartedMeetingIdRef.current = meeting.id;
-    console.log(`🤖 Auto-generating summary with ${modelConfig.provider}/${modelConfig.model}...`);
     onAutoGenerateComplete?.();
     void summaryGeneration.handleAutoGenerateSummary();
   }, [
