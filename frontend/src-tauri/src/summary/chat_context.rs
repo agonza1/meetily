@@ -59,6 +59,7 @@ pub struct MeetingContext {
     pub truncated: bool,
     pub included_segments: usize,
     pub sources: Vec<Source>,
+    pub matches: Vec<Source>,
 }
 
 // Small local lexical lookup, with no new index, dependencies or changed source text.
@@ -178,6 +179,16 @@ impl Retrieval {
             budget += bytes;
             selected.push(candidate);
         }
+        // Preview only lexical matches, in relevance order. The sampled overview is not a match.
+        let mut matches: Vec<Source> = Vec::new();
+        for candidate in selected.iter().take_while(|candidate| candidate.score > 0) {
+            if !matches.iter().any(|source| source.segment_id == candidate.source.segment_id) {
+                matches.push(candidate.source.clone());
+                if matches.len() == 2 {
+                    break;
+                }
+            }
+        }
         // Rank for selection, then restore transcript order so later corrections stay later.
         selected.sort_by_key(|candidate| candidate.order);
         let mut sources = Vec::new();
@@ -201,6 +212,7 @@ impl Retrieval {
             truncated,
             included_segments,
             sources,
+            matches,
         }
     }
 }
