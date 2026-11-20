@@ -869,6 +869,7 @@ pub fn run() {
             summary::ask_ai::api_cancel_meeting_chat,
             summary::commands::api_process_transcript,
             summary::chatgpt_plan::chatgpt_plan_status,
+            summary::chatgpt_plan::chatgpt_plan_confirm_summary,
             summary::chatgpt_plan::chatgpt_plan_set_summary_default,
             summary::chatgpt_plan::chatgpt_plan_connect,
             summary::chatgpt_plan::chatgpt_plan_disconnect,
