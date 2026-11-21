@@ -41,7 +41,7 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     return () => { epoch.current++; if (copyTimer.current) clearTimeout(copyTimer.current); };
   }, [meetingId, chat.configuration?.configurationId]);
   useEffect(() => { setOpen(false); setExpanded(false); }, [meetingId]);
-  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'nearest' }); }, [open, chat.messages.length, chat.pending]);
+  useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'nearest' }); }, [open, chat.messages.length, chat.matches.length, chat.pending]);
   function changeOpen(next: boolean) {
     setOpen(next);
     if (!next) {
@@ -100,6 +100,13 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
           </div>}
         </div>;
       })}
+      {chat.pending && chat.matches.length > 0 && <section aria-label="Transcript matches" className="rounded-lg border border-gray-200 p-3 text-xs text-gray-700">
+        <p className="font-medium">Transcript matches</p>
+        <ul className="mt-2 space-y-2">{chat.matches.map(match => <li key={match.segmentId}>
+          <span className="tabular-nums text-gray-500">{match.timestamp}</span>
+          <blockquote className="border-l-2 border-blue-200 pl-2 whitespace-pre-wrap">{match.text}</blockquote>
+        </li>)}</ul>
+      </section>}
       <div ref={endRef} />
     </div>}
     {!chat.messages.length && <div className="flex-1" />}

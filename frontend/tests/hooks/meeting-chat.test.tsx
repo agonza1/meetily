@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { useMeetingChat, type ChatTransport } from '../../src/hooks/useMeetingChat';
-import { boundedChatHistory, chatByteLength, type ChatConfiguration, type ChatRequest, type ChatResponse } from '../../src/lib/meeting-chat';
+import { boundedChatHistory, chatByteLength, type ChatConfiguration, type ChatRequest, type ChatResponse, type ChatSource } from '../../src/lib/meeting-chat';
 
-type Pending = { request: ChatRequest; resolve: (value: ChatResponse) => void; reject: (error: unknown) => void };
+type Pending = { request: ChatRequest; preview: (matches: ChatSource[]) => void; resolve: (value: ChatResponse) => void; reject: (error: unknown) => void };
 const local: ChatConfiguration = { provider: 'builtin-ai', model: 'qwen3.5:4b', configurationId: 'version-1', requiresProviderConfirmation: false };
 let configuration = local;
 let configurationReads = 0;
@@ -23,7 +23,7 @@ beforeEach(() => {
     history: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     clear: async meetingId => ({ meetingId, revision: 0, messages: [] }),
     configuration: async () => { configurationReads++; return configuration; },
-    ask: request => new Promise((resolve, reject) => pending.push({ request, resolve, reject })),
+    ask: (request, preview) => new Promise((resolve, reject) => pending.push({ request, preview, resolve, reject })),
   };
 });
 afterEach(async () => { if (renderer) await act(async () => renderer!.unmount()); renderer = undefined; });
@@ -45,6 +45,25 @@ async function answer(index: number, text = 'A supported answer', override: Part
 }
 
 describe('selected-meeting chat ownership', () => {
+  test('shows matches before the answer and ignores previews from stopped or previous requests', async () => {
+    const match = { segmentId: 'segment-a', timestamp: '01:23', text: 'The checklist is due Friday.' };
+    await show('A');
+    await send('When is the checklist due?');
+    await act(async () => pending[0].preview([match]));
+    expect(state.pending).toBe(true);
+    expect(state.matches).toEqual([match]);
+    expect(state.messages.map(message => message.role)).toEqual(['user']);
+    await act(async () => state.stop());
+    await send('Another question');
+    await act(async () => pending[0].preview([match]));
+    expect(state.matches).toEqual([]);
+    await act(async () => pending[1].preview([match]));
+    await answer(1);
+    expect(state.matches).toEqual([]);
+    await show('B');
+    await act(async () => pending[1].preview([match]));
+    expect(state.matches).toEqual([]);
+  });
   test('requires a meeting before loading configuration or sending', async () => {
     await show(null);
     await send();

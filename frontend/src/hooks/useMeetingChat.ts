@@ -1,15 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import {
   boundedChatHistory, chatByteLength,
-  type ChatConfiguration, type ChatMessage, type ChatRequest, type ChatResponse, type ChatHistory,
+  type ChatConfiguration, type ChatMessage, type ChatRequest, type ChatResponse, type ChatHistory, type ChatSource,
 } from '../lib/meeting-chat';
 
 export type ChatTransport = {
   configuration: () => Promise<ChatConfiguration>;
   history: (meetingId: string) => Promise<ChatHistory>;
   clear: (meetingId: string) => Promise<ChatHistory>;
-  ask: (request: ChatRequest) => Promise<ChatResponse>;
+  ask: (request: ChatRequest, onMatches: (matches: ChatSource[]) => void) => Promise<ChatResponse>;
   cancel?: (requestId: string) => Promise<void>;
 };
 const nativeTransport: ChatTransport = {
@@ -17,7 +17,9 @@ const nativeTransport: ChatTransport = {
   history: meetingId => invoke('api_get_meeting_chat_history', { meetingId }),
   clear: meetingId => invoke('api_clear_meeting_chat_history', { meetingId }),
   cancel: requestId => invoke('api_cancel_meeting_chat', { requestId }),
-  ask: (request) => invoke('api_ask_meetings_ai', { ...request }),
+  ask: (request, onMatches) => invoke('api_ask_meetings_ai', {
+    ...request, onMatches: new Channel(onMatches),
+  }),
 };
 type Snapshot = {
   scope: string | null;
@@ -25,9 +27,10 @@ type Snapshot = {
   messages: ChatMessage[];
   revision: number | null;
   pending: boolean;
+  matches: ChatSource[];
   error: string | null;
 };
-const empty = (scope: string | null): Snapshot => ({ scope, configuration: null, messages: [], revision: null, pending: false, error: null });
+const empty = (scope: string | null): Snapshot => ({ scope, configuration: null, messages: [], revision: null, pending: false, matches: [], error: null });
 
 export function useMeetingChat(meetingId: string | null, open: boolean, transport: ChatTransport = nativeTransport) {
   const [snapshot, setSnapshot] = useState<Snapshot>(() => empty(meetingId));
@@ -95,12 +98,16 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
     const requestId = crypto.randomUUID();
     active.current = requestId;
     busy.current = true;
-    setSnapshot(current => ({ ...current, pending: true, error: null, messages: [...current.messages, { id: `${requestId}-user`, role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
+    setSnapshot(current => ({ ...current, pending: true, matches: [], error: null, messages: [...current.messages, { id: `${requestId}-user`, role: 'user', content: query, timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }] }));
     try {
       const response = await transport.ask({
         requestId, historyRevision, query, meetingId, historyMeetingId: meetingId,
         history: boundedChatHistory(snapshot.messages),
         configurationId: configuration.configurationId, allowProviderRequest,
+      }, matches => {
+        if (epoch.current === version && active.current === requestId) {
+          setSnapshot(current => ({ ...current, matches }));
+        }
       });
       if (epoch.current !== version) return true;
       if (response.meetingId !== meetingId || response.provider !== configuration.provider || response.model !== configuration.model || response.historyRevision !== historyRevision + 1) {
@@ -120,7 +127,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       if (active.current === requestId) active.current = null;
       if (epoch.current === version) {
         busy.current = false;
-        setSnapshot(current => ({ ...current, pending: false }));
+        setSnapshot(current => ({ ...current, pending: false, matches: [] }));
       }
     }
     return true;
@@ -132,7 +139,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
     const cancellation = cancelActive();
     busy.current = false;
     // Preserve the editable draft while reloading any exchange that completed before Stop.
-    setSnapshot(current => ({ ...current, pending: false, revision: null, error: null }));
+    setSnapshot(current => ({ ...current, pending: false, matches: [], revision: null, error: null }));
     if (!meetingId) return;
     try {
       if (!await cancellation) throw new Error('Cancellation failed');

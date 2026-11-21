@@ -21,7 +21,7 @@ use std::{
     sync::{LazyLock, Mutex},
     time::Duration,
 };
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{ipc::Channel, AppHandle, Manager, Runtime};
 
 #[derive(Deserialize)]
 pub struct ChatTurn {
@@ -466,6 +466,7 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
     history: Vec<ChatTurn>,
     configuration_id: String,
     allow_provider_request: bool,
+    on_matches: Channel<Vec<chat_context::Source>>,
 ) -> Result<ChatResponse, String> {
     let turns: Vec<_> = history
         .iter()
@@ -513,7 +514,7 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
         .find(|t| t.role == "user")
         .map(|t| format!("{} {}", query, t.content))
         .unwrap_or_else(|| query.clone());
-    let context = if note_answer.is_none() {
+    let mut context = if note_answer.is_none() {
         Some(read_context(pool, &meeting_id, &retrieval_query).await?)
     } else {
         None
@@ -523,6 +524,15 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
         .is_some_and(|context| context.included_segments == 0)
     {
         return Err("This meeting has no transcript to ask about yet.".into());
+    }
+    if cancellation.is_cancelled() {
+        return Err("Chat stopped.".into());
+    }
+    if let Some(context) = &mut context {
+        if !context.matches.is_empty() {
+            // A closed WebView can drop the preview without changing answer generation.
+            let _ = on_matches.send(std::mem::take(&mut context.matches));
+        }
     }
     if note_answer.is_none() && config.provider == LLMProvider::BuiltInAI {
         let ready = super::summary_engine::commands::builtin_ai_is_model_ready(
@@ -1070,6 +1080,21 @@ mod tests {
             .unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
+    #[tokio::test]
+    async fn previews_show_two_ranked_exact_matches_from_only_this_meeting() {
+        let pool = database().await;
+        segment(&pool, "a1", "A", "The deadline changed to Friday.").await;
+        segment(&pool, "a2", "A", "Alex owns the checklist deadline.").await;
+        segment(&pool, "a3", "A", "Welcome, everyone.").await;
+        segment(&pool, "b1", "B", "Confidential checklist deadline.").await;
+
+        let matches = read_context(&pool, "A", "What is the checklist deadline?")
+            .await.unwrap().matches;
+        assert_eq!(matches.iter().map(|item| item.segment_id.as_str()).collect::<Vec<_>>(), ["a2", "a1"]);
+        assert_eq!(matches[0].text, "Alex owns the checklist deadline.");
+        assert!(read_context(&pool, "A", "What about catering?").await.unwrap().matches.is_empty());
+    }
+
     #[tokio::test]
     async fn sqlite_context_never_reads_a_different_meeting() {
         let pool = database().await;
