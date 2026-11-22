@@ -31,11 +31,20 @@ pub struct ChatTurn {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct LocalModelDownload {
+    name: String,
+    display_name: String,
+    size_mb: u64,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ChatConfiguration {
     pub provider: String,
     pub model: String,
     pub configuration_id: String,
     pub requires_provider_confirmation: bool,
+    local_model_download: Option<LocalModelDownload>,
 }
 
 #[derive(Serialize)]
@@ -251,6 +260,7 @@ async fn configuration(pool: &SqlitePool) -> Result<Configuration, String> {
         model: model.clone(),
         configuration_id: format!("{:016x}", hasher.finish()),
         requires_provider_confirmation: provider != LLMProvider::BuiltInAI,
+        local_model_download: None,
     };
     Ok(Configuration {
         saved,
@@ -261,11 +271,46 @@ async fn configuration(pool: &SqlitePool) -> Result<Configuration, String> {
     })
 }
 
+async fn runtime_configuration<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+) -> Result<(Configuration, bool), String> {
+    let mut config = configuration(pool).await?;
+    if config.provider != LLMProvider::BuiltInAI {
+        return Ok((config, true));
+    }
+
+    let available = super::summary_engine::commands::available_summary_model(
+        app,
+        app.state(),
+        Some(&config.model),
+    )
+    .await
+    .map_err(|_| "Could not check installed local models.")?;
+    let Some(model) = available else {
+        let recommended = super::summary_engine::commands::get_recommended_summary_model_for_current_system()?;
+        config.public.local_model_download = super::summary_engine::get_model_by_name(recommended)
+            .map(|model| LocalModelDownload {
+                name: model.name,
+                display_name: model.display_name,
+                size_mb: model.size_mb,
+            });
+        return Ok((config, false));
+    };
+    if model != config.model {
+        config.public.configuration_id = format!("{}:{model}", config.public.configuration_id);
+        config.model = model.clone();
+        config.public.model = model;
+    }
+    Ok((config, true))
+}
+
 #[tauri::command]
-pub async fn api_get_meeting_chat_config(
+pub async fn api_get_meeting_chat_config<R: Runtime>(
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
 ) -> Result<ChatConfiguration, String> {
-    Ok(configuration(state.db_manager.pool()).await?.public)
+    Ok(runtime_configuration(&app, state.db_manager.pool()).await?.0.public)
 }
 
 #[derive(sqlx::FromRow)]
@@ -383,7 +428,7 @@ async fn prepared_note_answer(
             && source["template_fingerprint"].as_str()
                 == Some(super::service::template_cache_fingerprint(&template).as_str())
             && source["model_provider"].as_str() == Some(config.public.provider.as_str())
-            && source["model_name"].as_str() == Some(config.model.as_str())
+            && source["model_name"].as_str() == Some(config.saved.model.trim())
         {
             let rows: Vec<(String, String, Option<f64>)> = sqlx::query_as("SELECT transcript, timestamp, audio_start_time FROM transcripts WHERE meeting_id = ? ORDER BY audio_start_time ASC, rowid ASC")
                 .bind(meeting_id).fetch_all(pool).await.map_err(|_| "Could not check the current transcript.")?;
@@ -478,7 +523,7 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
         return Err("Chat stopped.".into());
     }
     let pool = state.db_manager.pool();
-    let config = configuration(pool).await?;
+    let (config, model_ready) = runtime_configuration(&app, pool).await?;
     if configuration_id != config.public.configuration_id {
         return Err("Model settings changed. Reopen chat to review the selected provider.".into());
     }
@@ -534,20 +579,8 @@ pub async fn api_ask_meetings_ai<R: Runtime>(
             let _ = on_matches.send(std::mem::take(&mut context.matches));
         }
     }
-    if note_answer.is_none() && config.provider == LLMProvider::BuiltInAI {
-        let ready = super::summary_engine::commands::builtin_ai_is_model_ready(
-            app.clone(),
-            app.state(),
-            config.model.clone(),
-            Some(true),
-        )
-        .await
-        .map_err(|_| "Could not check the selected local model.")?;
-        if !ready {
-            return Err(
-                "The selected local model is not ready. Download or repair it in Settings.".into(),
-            );
-        }
+    if note_answer.is_none() && !model_ready {
+        return Err("Download a local model in Ask Anything to answer this question.".into());
     }
     let api_key = if config.provider == LLMProvider::BuiltInAI {
         String::new()

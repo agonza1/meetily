@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime, State};
 use tokio::sync::Mutex;
 
-use super::model_manager::{DownloadProgress, ModelInfo, ModelManager};
+use super::model_manager::{DownloadProgress, ModelInfo, ModelManager, ModelStatus};
 
 const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
 
@@ -319,13 +319,21 @@ pub async fn builtin_ai_get_available_summary_model<R: Runtime>(
     app: AppHandle<R>,
     state: State<'_, ModelManagerState>,
 ) -> Result<Option<String>, String> {
+    available_summary_model(&app, state, None).await
+}
+
+pub(crate) async fn available_summary_model<R: Runtime>(
+    app: &AppHandle<R>,
+    state: State<'_, ModelManagerState>,
+    preferred: Option<&str>,
+) -> Result<Option<String>, String> {
     let manager = {
         // Ensure manager is initialized
         {
             let manager_lock = state.0.lock().await;
             if manager_lock.is_none() {
                 drop(manager_lock);
-                init_model_manager(&app)
+                init_model_manager(app)
                     .await
                     .map_err(|e| format!("Failed to initialize model manager: {}", e))?;
             }
@@ -344,21 +352,28 @@ pub async fn builtin_ai_get_available_summary_model<R: Runtime>(
         .await
         .map_err(|e| format!("Failed to scan models: {}", e))?;
 
-    // Get all available models
     let all_models = manager.list_models().await;
-
-    // Do not auto-select an unqualified Gemma model on a low-memory or unknown host.
-    let allow_gemma_default = cfg!(target_os = "macos")
-        && get_system_ram_gb().is_ok_and(|ram| ram > 8);
-    let available = all_models
-        .iter()
-        .filter(|m| matches!(m.status, crate::summary::summary_engine::model_manager::ModelStatus::Available))
-        .filter(|m| allow_gemma_default || !m.name.starts_with("gemma4:"))
-        .max_by_key(|m| summary_model_priority(&m.name))
-        .map(|m| m.name.clone());
+    let ready = all_models.iter()
+        .filter(|model| matches!(model.status, ModelStatus::Available))
+        .map(|model| model.name.as_str());
+    let allowed = || cfg!(target_os = "macos") && get_system_ram_gb().is_ok_and(|ram| ram > 8);
+    let available = choose_available_summary_model(ready, preferred, allowed).map(str::to_owned);
 
     log::info!("Available summary model check: {:?}", available);
     Ok(available)
+}
+
+fn choose_available_summary_model<'a>(
+    ready: impl Iterator<Item = &'a str> + Clone,
+    preferred: Option<&str>,
+    allow_gemma_default: impl FnOnce() -> bool,
+) -> Option<&'a str> {
+    if let Some(model) = preferred.and_then(|name| ready.clone().find(|ready| *ready == name)) {
+        return Some(model);
+    }
+    let allow_gemma = allow_gemma_default();
+    ready.filter(|name| allow_gemma || !name.starts_with("gemma4:"))
+        .max_by_key(|name| summary_model_priority(name))
 }
 
 // ============================================================================
@@ -432,6 +447,23 @@ mod tests {
     fn recommended_summary_model_uses_larger_model_at_platform_threshold() {
         assert_eq!(recommend_summary_model(true, 14), "gemma4:e4b");
         assert_eq!(recommend_summary_model(false, 14), "qwen3.5:4b");
+    }
+
+    #[test]
+    fn available_model_keeps_installed_preference_or_uses_an_eligible_fallback() {
+        let installed = ["qwen3.5:2b", "gemma4:e4b"];
+        assert_eq!(
+            choose_available_summary_model(installed.into_iter(), Some("gemma4:e4b"), || false),
+            Some("gemma4:e4b")
+        );
+        assert_eq!(
+            choose_available_summary_model(installed.into_iter(), Some("qwen3.5:4b"), || false),
+            Some("qwen3.5:2b")
+        );
+        assert_eq!(
+            choose_available_summary_model(std::iter::empty(), Some("qwen3.5:4b"), || true),
+            None
+        );
     }
 
     #[test]

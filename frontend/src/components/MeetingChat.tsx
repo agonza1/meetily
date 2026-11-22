@@ -10,6 +10,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { toast } from 'sonner';
 import { useMeetingChat, type ChatTransport } from '../hooks/useMeetingChat';
+import { BuiltInAIAPI } from '../lib/builtin-ai';
 
 export function MeetingChatAnswer({ content }: { content: string }) {
   return <div className="prose prose-sm min-w-0 max-w-none [overflow-wrap:anywhere]">
@@ -26,9 +27,11 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const chat = useMeetingChat(meetingId, true, transport);
+  const chat = useMeetingChat(meetingId, open, transport);
   const [input, setInput] = useState('');
   const [confirmed, setConfirmed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const localModelDownload = chat.configuration?.localModelDownload;
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const epoch = useRef(0);
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -39,7 +42,7 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     epoch.current++;
     setInput(''); setConfirmed(false); setCopiedId(null);
     return () => { epoch.current++; if (copyTimer.current) clearTimeout(copyTimer.current); };
-  }, [meetingId, chat.configuration?.configurationId]);
+  }, [meetingId]);
   useEffect(() => { setOpen(false); setExpanded(false); }, [meetingId]);
   useEffect(() => { if (open) endRef.current?.scrollIntoView({ block: 'nearest' }); }, [open, chat.messages.length, chat.matches.length, chat.pending]);
   function changeOpen(next: boolean) {
@@ -54,6 +57,19 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     const version = epoch.current;
     if (await chat.send(input, confirmed) && epoch.current === version) { setInput(''); setConfirmed(false); }
   }
+  async function downloadLocalModel() {
+    if (!localModelDownload || downloading || chat.pending) return;
+    setDownloading(true);
+    try {
+      await BuiltInAIAPI.downloadModel(localModelDownload.name);
+      chat.reload();
+    } catch {
+      toast.error('Could not download the local model. Try again.');
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   async function copy(text: string, id: string) {
     const version = epoch.current;
     try {
@@ -115,6 +131,12 @@ export function MeetingChat({ meetingId, transport }: { meetingId: string; trans
     {!chat.messages.length && <p className="text-xs text-gray-500">Generate a summary for instant decisions and action items.</p>}
     {!chat.pending && <div className="flex flex-wrap gap-1.5" aria-label="Suggested questions">
       {suggestions.map(([label, query]) => <button key={label} type="button" disabled={chat.pending} className="rounded-full border border-gray-200 px-2.5 py-1 text-xs text-gray-600 hover:bg-blue-50 disabled:opacity-50" onClick={() => { setInput(query); inputRef.current?.focus(); }}>{label}</button>)}
+    </div>}
+    {localModelDownload && <div className="space-y-1.5 rounded-lg border border-gray-200 p-3 text-xs text-gray-600">
+      <p>Set up {localModelDownload.displayName} to answer questions on this Mac. The download is about {(localModelDownload.sizeMb / 1024).toFixed(1)} GB.</p>
+      <button type="button" disabled={downloading || chat.pending} onClick={() => void downloadLocalModel()} className="rounded-md border px-2.5 py-1 font-medium text-blue-700 disabled:opacity-60">
+        {downloading ? 'Downloading local model…' : 'Download local model'}
+      </button>
     </div>}
     {chat.error && <p role="alert" className="text-sm text-red-700">{chat.error}</p>}
     {chat.configuration?.requiresProviderConfirmation && <label className="flex items-start gap-2 text-xs text-gray-600">

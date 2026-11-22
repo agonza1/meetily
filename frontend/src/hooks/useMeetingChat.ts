@@ -34,6 +34,7 @@ const empty = (scope: string | null): Snapshot => ({ scope, configuration: null,
 
 export function useMeetingChat(meetingId: string | null, open: boolean, transport: ChatTransport = nativeTransport) {
   const [snapshot, setSnapshot] = useState<Snapshot>(() => empty(meetingId));
+  const [loadVersion, setLoadVersion] = useState(0);
   const epoch = useRef(0);
   const busy = useRef(false);
   const active = useRef<string | null>(null);
@@ -60,7 +61,7 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       });
     }
     return () => { epoch.current++; cancelActive(); };
-  }, [meetingId, open, transport, cancelActive]);
+  }, [meetingId, open, transport, cancelActive, loadVersion]);
 
   const reset = useCallback(async () => {
     const version = ++epoch.current;
@@ -150,5 +151,5 @@ export function useMeetingChat(meetingId: string | null, open: boolean, transpor
       if (epoch.current === version) setSnapshot(current => ({ ...current, error: 'Could not reload saved chat after stopping. Reopen this meeting to retry.' }));
     }
   };
-  return { ...visible, send, reset, stop };
+  return { ...visible, send, reset, stop, reload: () => setLoadVersion(version => version + 1) };
 }
