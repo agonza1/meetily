@@ -4,6 +4,7 @@ export type ChatConfiguration = {
   model: string;
   configurationId: string;
   requiresProviderConfirmation: boolean;
+  localModelDownload?: { name: string; displayName: string; sizeMb: number } | null;
 };
 export type ChatMessage = {
   id?: string;
