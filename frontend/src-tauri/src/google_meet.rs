@@ -19,7 +19,7 @@ pub(crate) struct Observation {
     response: Option<(Uuid, BrowserAction)>,
 }
 
-#[derive(Clone, Copy, Deserialize, Serialize)]
+#[derive(Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum BrowserAction {
     Execute,
@@ -53,6 +53,24 @@ pub(crate) fn google_meet_countdown(offer: Option<CountdownOffer>) -> Result<(),
     {
         let _ = offer;
         Ok(())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn google_meet_confirm_execute(offer: CountdownOffer) -> bool {
+    #[cfg(target_os = "macos")]
+    return mac::execute_observation()
+        .ok()
+        .flatten()
+        .is_some_and(|observation| {
+            observation.call == offer.call
+                && observation.phase == offer.phase
+                && observation.response == Some((offer.nonce, BrowserAction::Execute))
+        });
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = offer;
+        false
     }
 }
 
@@ -113,20 +131,39 @@ mod mac {
     }
 
     fn fresh(path: &Path) -> bool {
-        path.symlink_metadata()
+        fresh_metadata(path.symlink_metadata(), FRESH)
+    }
+
+    fn fresh_metadata(metadata: io::Result<fs::Metadata>, max_age: Duration) -> bool {
+        metadata
             .ok()
             .filter(|meta| meta.is_file() && meta.len() <= MAX_PACKET as u64)
             .and_then(|meta| meta.modified().ok()?.elapsed().ok())
-            .is_some_and(|elapsed| elapsed < FRESH)
+            .is_some_and(|elapsed| elapsed < max_age)
     }
 
     pub(super) fn observation() -> io::Result<Option<Observation>> {
+        read_observation(FRESH)
+    }
+
+    pub(super) fn execute_observation() -> io::Result<Option<Observation>> {
+        read_observation(Duration::from_secs(3))
+    }
+
+    fn read_observation(max_age: Duration) -> io::Result<Option<Observation>> {
         let dir = directory()?;
         let snapshot = dir.join("observation.json");
-        if !fresh(&dir.join("enabled")) || !fresh(&snapshot) {
+        if !fresh(&dir.join("enabled")) || !fresh_metadata(snapshot.symlink_metadata(), max_age) {
             return Ok(None);
         }
-        Ok(serde_json::from_reader(File::open(snapshot)?.take(MAX_PACKET as u64 + 1)).ok())
+        let file = match File::open(snapshot) {
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
+            result => result?,
+        };
+        if !fresh_metadata(file.metadata(), max_age) {
+            return Ok(None);
+        }
+        Ok(serde_json::from_reader(file.take(MAX_PACKET as u64 + 1)).ok())
     }
 
     fn publish(dir: &Path, name: &str, data: &[u8]) -> io::Result<()> {

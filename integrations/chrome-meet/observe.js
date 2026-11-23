@@ -9,6 +9,8 @@
   let countdown = null;
   let response = null;
   let responseAt = 0;
+  let interruptedCall = null;
+  let canceled = null;
   let surface;
 
   function hide() {
@@ -18,7 +20,8 @@
   function interrupt() {
     hide();
     if (response?.[1] === 'execute') {
-      responseAt = 0;
+      response = null;
+      interruptedCall = call;
       if (call && enabled) port?.postMessage({ call, phase: 'unknown' });
     }
   }
@@ -26,12 +29,21 @@
   document.addEventListener('visibilitychange', interrupt);
 
   function showCountdown(phase, now) {
-    if (!offer || offer.call !== call || offer.phase !== phase || now - received > 4500 ||
-        document.hidden || !document.hasFocus()) {
+    if (!offer || offer.call !== call || offer.phase !== phase || now - received > 4500) {
       interrupt();
       return null;
     }
-    if (response?.[0] === offer.nonce) return now - responseAt < 3000 ? response : null;
+    if (canceled?.call === call && canceled.phase === phase) return [offer.nonce, 'cancel'];
+    if (document.hidden || !document.hasFocus()) {
+      interrupt();
+      return null;
+    }
+    if (response?.[0] === offer.nonce) {
+      if (now - responseAt < 3000) return response;
+      if (response[1] !== 'execute') return null;
+      // A lost automatic response is retried only after a full new countdown.
+      response = null;
+    }
     if (!surface) {
       const host = document.createElement('div');
       host.style.cssText = 'all:initial;position:fixed;top:12px;right:12px;z-index:2147483647';
@@ -53,6 +65,7 @@
       });
       const choose = (event, action) => {
         if (!event.isTrusted || !countdown || !usable()) return;
+        if (action === 'cancel') canceled = { call, phase: offer.phase };
         response = [countdown.nonce, action];
         responseAt = Date.now();
         hide();
@@ -128,8 +141,12 @@
     }
     // A lobby, new tab, navigation, or disconnected bridge isn't an end.
     if (phase === 'ended' && call) ended = true;
+    if (!document.hidden && document.hasFocus()) interruptedCall = null;
     const answer = showCountdown(phase, Date.now());
-    port.postMessage(call ? { call, phase, ...(answer ? { response: answer } : {}) } : {});
+    // The host keeps one snapshot: don't replace a revoked execute with positive
+    // evidence while the originating tab is still unfocused.
+    const reportedPhase = call === interruptedCall && !answer ? 'unknown' : phase;
+    port.postMessage(call ? { call, phase: reportedPhase, ...(answer ? { response: answer } : {}) } : {});
   }
 
   tick();

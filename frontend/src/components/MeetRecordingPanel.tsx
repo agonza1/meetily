@@ -48,6 +48,9 @@ function MacRecordingPanel() {
   const lastJoined = useRef<string | null>(null);
   const alerted = useRef<string | null>(null);
   const browserOffer = useRef<{ key: string; nonce: string } | null>(null);
+  const checkingExecute = useRef<string | null>(null);
+
+  useEffect(() => () => { browserOffer.current = null; }, []);
 
   useEffect(() => {
     const refresh = () => setPrefs(parseMeetPreferences(read(meetPreferencesKey)));
@@ -114,6 +117,12 @@ function MacRecordingPanel() {
     try { localStorage.setItem('google-meet-stop-cancelled-v1', session); } catch { /* Keep the in-memory override. */ }
   }
 
+  function withdrawBrowserOffer() {
+    if (!browserOffer.current) return;
+    browserOffer.current = null;
+    void invoke('google_meet_countdown', { offer: null }).catch(console.error);
+  }
+
   async function run(action: 'start' | 'stop' | 'pause', call?: string, automatic = false) {
     if (inFlight.current) return;
     inFlight.current = true;
@@ -152,26 +161,37 @@ function MacRecordingPanel() {
 
   useEffect(() => {
     if (!key || !offer || offer.action === 'prompt') {
-      if (browserOffer.current) {
-        browserOffer.current = null;
-        void invoke('google_meet_countdown', { offer: null }).catch(console.error);
-      }
+      withdrawBrowserOffer();
       return;
     }
-    const armedKey = `${key}:${offer.action === 'stop' ? state.googleMeetOwner?.[1] : ''}`;
+    const recordingAction = offer.action;
+    const armedKey = `${key}:${recordingAction === 'stop' ? state.googleMeetOwner?.[1] : ''}`;
     if (browserOffer.current?.key !== armedKey) browserOffer.current = { key: armedKey, nonce: crypto.randomUUID() };
     const { nonce } = browserOffer.current;
-    const phase = offer.action === 'start' ? 'joined' : 'ended';
+    const phase = recordingAction === 'start' ? 'joined' : 'ended';
     const observation = sample.observation;
     if (observation?.call === offer.call && observation.phase === phase && observation.response?.[0] === nonce) {
-      browserOffer.current = null;
-      void invoke('google_meet_countdown', { offer: null }).catch(console.error);
       const action = observation.response[1];
-      if (action === 'cancel') {
-        if (offer.action === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
-        else suppress(offer.call);
+      const consume = () => {
+        if (browserOffer.current?.nonce !== nonce || inFlight.current) return;
+        withdrawBrowserOffer();
+        if (action === 'cancel') {
+          if (recordingAction === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
+          else suppress(offer.call);
+        } else {
+          void run(recordingAction, offer.call, action === 'execute');
+        }
+      };
+      if (action !== 'execute') {
+        consume();
       } else {
-        void run(offer.action, offer.call, action === 'execute');
+        if (checkingExecute.current === nonce) return;
+        checkingExecute.current = nonce;
+        // A poll can have cached execute just before Chrome revoked it on blur.
+        void invoke<boolean>('google_meet_confirm_execute', { offer: { call: offer.call, nonce, phase } })
+          .then(confirmed => { if (confirmed) consume(); })
+          .catch(console.error)
+          .finally(() => { if (checkingExecute.current === nonce) checkingExecute.current = null; });
       }
       return;
     }
@@ -209,7 +229,11 @@ function MacRecordingPanel() {
           <Button size="sm" variant={offer.action === 'stop' ? 'destructive' : 'default'} onClick={() => void run(offer.action === 'stop' ? 'stop' : 'start', offer.call)}>
             {offer.action === 'stop' ? 'Stop now' : offer.action === 'start' ? 'Start now' : 'Start recording'}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => offer.action === 'stop' && state.googleMeetOwner ? cancelStop(state.googleMeetOwner[1]) : suppress(offer.call)}>
+          <Button size="sm" variant="outline" onClick={() => {
+            withdrawBrowserOffer();
+            if (offer.action === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
+            else suppress(offer.call);
+          }}>
             {offer.action === 'prompt' ? 'Dismiss' : 'Cancel'}
           </Button>
         </div>
