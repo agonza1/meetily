@@ -9,6 +9,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, UnlistenFn } from '@tauri-apps/api/event';
 
 export type StopOutcome = 'stopped' | 'already_stopping' | 'not_active';
+export type GoogleMeetStart = { call: string; automatic: boolean };
 
 export interface RecordingState {
   is_recording: boolean;
@@ -16,6 +17,10 @@ export interface RecordingState {
   is_active: boolean;
   recording_duration: number | null;
   active_duration: number | null;
+  google_meet_owner?: [call: string, start: string] | null;
+  microphone_available?: boolean;
+  system_available?: boolean;
+  audio_warning?: string | null;
 }
 
 export interface RecordingStoppedPayload {
@@ -92,12 +97,14 @@ export class RecordingService {
   async startRecordingWithDevices(
     micDeviceName: string | null,
     systemDeviceName: string | null,
-    meetingName: string
+    meetingName: string,
+    meet?: GoogleMeetStart
   ): Promise<void> {
-    return withStartTimeout(invoke('start_recording_with_devices_and_meeting', {
+    return withStartTimeout(invoke(meet ? 'start_recording_for_google_meet' : 'start_recording_with_devices_and_meeting', {
       micDeviceName,
       systemDeviceName,
-      meetingName
+      meetingName,
+      ...meet,
     }));
   }
 

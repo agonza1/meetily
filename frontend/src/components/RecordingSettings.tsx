@@ -8,6 +8,7 @@ import { cachedDeviceLabel } from '@/lib/audioDevices';
 import { toast } from 'sonner';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useConfig } from '@/contexts/ConfigContext';
+import { GoogleMeetSettings } from '@/components/GoogleMeetSettings';
 
 export interface RecordingPreferences {
   device_selection_version: [number, number];
@@ -181,6 +182,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         </p>
       </div>
 
+      <GoogleMeetSettings />
       {/* Auto Save Toggle */}
       <div className="flex items-center justify-between p-4 border rounded-lg">
         <div className="flex-1">

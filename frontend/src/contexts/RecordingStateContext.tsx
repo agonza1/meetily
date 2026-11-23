@@ -33,6 +33,10 @@ interface RecordingState {
   isActive: boolean;              // Is actively recording (recording && !paused)
   recordingDuration: number | null;  // Total duration including pauses
   activeDuration: number | null;     // Active recording time (excluding pauses)
+  googleMeetOwner?: [call: string, start: string] | null;
+  microphoneAvailable?: boolean;
+  systemAvailable?: boolean;
+  audioWarning?: string | null;
 
   // NEW: Lifecycle status
   status: RecordingStatus;
@@ -99,9 +103,14 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
         isActive: backendState.is_active,
         recordingDuration: backendState.recording_duration,
         activeDuration: backendState.active_duration,
+        googleMeetOwner: backendState.google_meet_owner,
+        microphoneAvailable: backendState.microphone_available,
+        systemAvailable: backendState.system_available,
+        audioWarning: backendState.audio_warning,
       }));
 
       console.log('[RecordingStateContext] Synced with backend:', backendState);
+      return backendState.is_recording;
     } catch (error) {
       console.error('[RecordingStateContext] Failed to sync with backend:', error);
       // Don't update state on error - keep current state
@@ -359,7 +368,11 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
    */
   useEffect(() => {
     console.log('[RecordingStateContext] Initial mount - syncing with backend');
-    syncWithBackend();
+    let disposed = false;
+    syncWithBackend().then(live => {
+      if (!disposed && live) startPolling();
+    }).catch(console.error);
+    return () => { disposed = true; };
   }, []);
 
   // NEW: Computed helpers from status
