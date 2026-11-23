@@ -14,8 +14,11 @@ export function parseMeetPreferences(raw: string | null): MeetPreferences {
   }
 }
 
-export type MeetObservation = { call: string; phase: 'joined' | 'ended' | 'unknown' };
-export const COUNTDOWN_MS = 10_000;
+export type MeetObservation = {
+  call: string;
+  phase: 'joined' | 'ended' | 'unknown';
+  response?: [nonce: string, action: 'execute' | 'now' | 'cancel'];
+};
 export const JOIN_MS = 4_000;
 export const END_MS = 20_000;
 const MAX_SAMPLE_GAP_MS = 3_500;
@@ -45,8 +48,4 @@ export function offerFor(evidence: Evidence | null, now: number, prefs: MeetPref
     return { call, action: 'stop' } as const;
   }
   return null;
-}
-
-export function canFireCountdown(evidence: Evidence | null, now: number, focused: boolean, seconds: number | null) {
-  return focused && seconds === 0 && evidence !== null && now >= evidence.last && now - evidence.last <= MAX_SAMPLE_GAP_MS;
 }

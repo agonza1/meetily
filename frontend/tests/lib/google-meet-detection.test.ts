@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'bun:test';
-import { canFireCountdown, END_MS, JOIN_MS, offerFor, parseMeetPreferences, updateEvidence, type Evidence } from '../../src/lib/googleMeetDetection';
+import { END_MS, JOIN_MS, offerFor, parseMeetPreferences, updateEvidence, type Evidence } from '../../src/lib/googleMeetDetection';
 
 const { meetPhase } = require('../../../integrations/chrome-meet/signals.js');
+const { advanceCountdown } = require('../../../integrations/chrome-meet/countdown.js');
 const enabled = { enabled: true, autoStart: false, autoStop: false };
 const joined = { call: 'one', phase: 'joined' } as const;
 const ended = { call: 'one', phase: 'ended' } as const;
@@ -65,12 +66,11 @@ describe('Meet recording policy', () => {
     expect(offerFor(afterSleep, END_MS + 30_000, { ...enabled, autoStop: true }, true, false, 'one', false, false)).toBeNull();
   });
 
-  test('a countdown cannot fire while unfocused, stale, canceled or unfinished', () => {
-    const evidence = sample(ended, END_MS);
-    expect(canFireCountdown(evidence, END_MS, true, 0)).toBe(true);
-    expect(canFireCountdown(evidence, END_MS, false, 0)).toBe(false);
-    expect(canFireCountdown(evidence, END_MS, true, 1)).toBe(false);
-    expect(canFireCountdown(evidence, END_MS, true, null)).toBe(false);
-    expect(canFireCountdown(evidence, END_MS + 30_000, true, 0)).toBe(false);
+  test('the browser countdown resets when hidden, after a gap, or for a different offer', () => {
+    const previous = { nonce: 'one', since: 1000, last: 9000 };
+    expect(advanceCountdown(previous, 'one', 10_000, true).since).toBe(1000);
+    expect(advanceCountdown(previous, 'one', 10_000, false)).toBeNull();
+    expect(advanceCountdown(previous, 'one', 30_000, true).since).toBe(30_000);
+    expect(advanceCountdown(previous, 'two', 10_000, true).since).toBe(10_000);
   });
 });

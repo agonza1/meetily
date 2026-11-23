@@ -15,6 +15,23 @@ pub(crate) enum Phase {
 pub(crate) struct Observation {
     call: Uuid,
     phase: Phase,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    response: Option<(Uuid, BrowserAction)>,
+}
+
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum BrowserAction {
+    Execute,
+    Now,
+    Cancel,
+}
+
+#[derive(Deserialize, Serialize)]
+pub(crate) struct CountdownOffer {
+    call: Uuid,
+    nonce: Uuid,
+    phase: Phase,
 }
 
 #[tauri::command]
@@ -25,6 +42,17 @@ pub(crate) fn google_meet_probe(enabled: bool) -> Result<Option<Observation>, St
     {
         let _ = enabled;
         Ok(None)
+    }
+}
+
+#[tauri::command]
+pub(crate) fn google_meet_countdown(offer: Option<CountdownOffer>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    return mac::countdown(offer).map_err(|e| e.to_string());
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = offer;
+        Ok(())
     }
 }
 
@@ -55,7 +83,7 @@ pub use mac::run_chrome_host;
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use super::Observation;
+    use super::{CountdownOffer, Observation};
     use std::{
         fs::{self, File, OpenOptions},
         io::{self, Read, Write},
@@ -133,6 +161,18 @@ mod mac {
         }
     }
 
+    pub(super) fn countdown(offer: Option<CountdownOffer>) -> io::Result<()> {
+        let dir = directory()?;
+        if let Some(offer) = offer {
+            publish(&dir, "countdown.json", &serde_json::to_vec(&offer)?)
+        } else {
+            match fs::remove_file(dir.join("countdown.json")) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
+                result => result,
+            }
+        }
+    }
+
     fn exchange(mut input: impl Read, mut output: impl Write, dir: &Path) -> io::Result<()> {
         loop {
             let mut size = [0; 4];
@@ -152,13 +192,20 @@ mod mac {
                     publish(dir, "observation.json", &serde_json::to_vec(&o)?)?;
                 }
             }
-            let reply: &[u8] = if enabled {
-                b"{\"enabled\":true}"
+            let countdown_path = dir.join("countdown.json");
+            let reply = if enabled && fresh(&countdown_path) {
+                let offer: Option<CountdownOffer> =
+                    File::open(countdown_path).ok().and_then(|file| {
+                        serde_json::from_reader(file.take(MAX_PACKET as u64 + 1)).ok()
+                    });
+                serde_json::to_vec(&serde_json::json!({"enabled":true, "offer":offer}))?
+            } else if enabled {
+                b"{\"enabled\":true}".to_vec()
             } else {
-                b"{\"enabled\":false}"
+                b"{\"enabled\":false}".to_vec()
             };
             output.write_all(&(reply.len() as u32).to_ne_bytes())?;
-            output.write_all(reply)?;
+            output.write_all(&reply)?;
             output.flush()?;
         }
     }
@@ -178,6 +225,7 @@ mod mac {
     #[cfg(test)]
     mod tests {
         use super::*;
+        use crate::google_meet::{BrowserAction, Phase};
 
         fn packet(body: &[u8]) -> Vec<u8> {
             [(body.len() as u32).to_ne_bytes().as_slice(), body].concat()
@@ -190,6 +238,7 @@ mod mac {
             let observation = Observation {
                 call: uuid::Uuid::new_v4(),
                 phase: super::super::Phase::Joined,
+                response: None,
             };
             let data = serde_json::to_vec(&observation).unwrap();
             let mut reply = Vec::new();
@@ -214,6 +263,32 @@ mod mac {
                 dir.path()
             )
             .is_err());
+        }
+
+        #[test]
+        fn chrome_bridge_round_trips_a_scoped_countdown_offer_and_response() {
+            let dir = tempfile::tempdir().unwrap();
+            let path = dir.path();
+            let call = uuid::Uuid::new_v4();
+            let nonce = uuid::Uuid::new_v4();
+            let offer = CountdownOffer {
+                call,
+                nonce,
+                phase: Phase::Ended,
+            };
+            publish(path, "enabled", b"").unwrap();
+            publish(path, "countdown.json", &serde_json::to_vec(&offer).unwrap()).unwrap();
+            let observation = Observation {
+                call,
+                phase: Phase::Ended,
+                response: Some((nonce, BrowserAction::Cancel)),
+            };
+            let data = serde_json::to_vec(&observation).unwrap();
+            let mut reply = Vec::new();
+            exchange(&packet(&data)[..], &mut reply, path).unwrap();
+            let reply: serde_json::Value = serde_json::from_slice(&reply[4..]).unwrap();
+            assert_eq!(reply["offer"], serde_json::to_value(offer).unwrap());
+            assert_eq!(fs::read(path.join("observation.json")).unwrap(), data);
         }
     }
 }

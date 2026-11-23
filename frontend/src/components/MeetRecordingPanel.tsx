@@ -10,7 +10,7 @@ import { useConfig } from '@/contexts/ConfigContext';
 import { RecordingStatus, useRecordingState } from '@/contexts/RecordingStateContext';
 import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { cachedDeviceLabel } from '@/lib/audioDevices';
-import { canFireCountdown, COUNTDOWN_MS, meetPreferencesKey, offerFor, parseMeetPreferences, updateEvidence, type Evidence, type MeetObservation } from '@/lib/googleMeetDetection';
+import { meetPreferencesKey, offerFor, parseMeetPreferences, updateEvidence, type Evidence, type MeetObservation } from '@/lib/googleMeetDetection';
 import { recordingService } from '@/services/recordingService';
 
 function read(key: string) {
@@ -38,7 +38,7 @@ function MacRecordingPanel() {
   const { selectedDevices } = useConfig();
   const { handleRecordingStart } = useRecordingStart(state.isRecording, () => {}, undefined, false);
   const [prefs, setPrefs] = useState(() => parseMeetPreferences(read(meetPreferencesKey)));
-  const [sample, setSample] = useState<{ evidence: Evidence | null; now: number }>({ evidence: null, now: 0 });
+  const [sample, setSample] = useState<{ evidence: Evidence | null; now: number; observation?: MeetObservation | null }>({ evidence: null, now: 0 });
   const [probeError, setProbeError] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
   const [suppressed, setSuppressed] = useState(readSuppressed);
@@ -47,30 +47,12 @@ function MacRecordingPanel() {
   const inFlight = useRef(false);
   const lastJoined = useRef<string | null>(null);
   const alerted = useRef<string | null>(null);
-  const [focused, setFocused] = useState(false);
-  const [countdown, setCountdown] = useState<{ key: string; since: number } | null>(null);
+  const browserOffer = useRef<{ key: string; nonce: string } | null>(null);
 
   useEffect(() => {
     const refresh = () => setPrefs(parseMeetPreferences(read(meetPreferencesKey)));
     window.addEventListener(meetPreferencesKey, refresh);
     return () => window.removeEventListener(meetPreferencesKey, refresh);
-  }, []);
-
-  useEffect(() => {
-    const refresh = () => {
-      const visible = !document.hidden && document.hasFocus();
-      setFocused(visible);
-      if (!visible) setCountdown(null);
-    };
-    refresh();
-    window.addEventListener('focus', refresh);
-    window.addEventListener('blur', refresh);
-    document.addEventListener('visibilitychange', refresh);
-    return () => {
-      window.removeEventListener('focus', refresh);
-      window.removeEventListener('blur', refresh);
-      document.removeEventListener('visibilitychange', refresh);
-    };
   }, []);
 
   useEffect(() => {
@@ -93,7 +75,7 @@ function MacRecordingPanel() {
       evidence = updateEvidence(evidence, observation, now);
       if (observation?.phase === 'joined') lastJoined.current = observation.call;
       if (observation?.phase === 'ended' && lastJoined.current === observation.call) lastJoined.current = null;
-      setSample({ evidence, now });
+      setSample({ evidence, now, observation });
       setProbeError(failed);
       timer = setTimeout(poll, 1000);
     };
@@ -125,11 +107,7 @@ function MacRecordingPanel() {
       alerted.current = key;
       void invoke('google_meet_attention').catch(console.error);
     }
-    if (!key || !focused || offer?.action === 'prompt') setCountdown(null);
-    else setCountdown(current => current?.key === key ? current : { key, since: sample.now });
-  }, [key, focused, offer?.action, sample.now]);
-
-  const seconds = key && countdown?.key === key ? Math.max(0, Math.ceil((countdown.since + COUNTDOWN_MS - sample.now) / 1000)) : null;
+  }, [key]);
 
   function cancelStop(session: string) {
     setStopCancelled(session);
@@ -173,10 +151,32 @@ function MacRecordingPanel() {
   }
 
   useEffect(() => {
-    if (canFireCountdown(sample.evidence, Date.now(), focused && !document.hidden && document.hasFocus(), seconds) && offer && offer.action !== 'prompt') {
-      void run(offer.action, offer.call, true);
+    if (!key || !offer || offer.action === 'prompt') {
+      if (browserOffer.current) {
+        browserOffer.current = null;
+        void invoke('google_meet_countdown', { offer: null }).catch(console.error);
+      }
+      return;
     }
-  });
+    const armedKey = `${key}:${offer.action === 'stop' ? state.googleMeetOwner?.[1] : ''}`;
+    if (browserOffer.current?.key !== armedKey) browserOffer.current = { key: armedKey, nonce: crypto.randomUUID() };
+    const { nonce } = browserOffer.current;
+    const phase = offer.action === 'start' ? 'joined' : 'ended';
+    const observation = sample.observation;
+    if (observation?.call === offer.call && observation.phase === phase && observation.response?.[0] === nonce) {
+      browserOffer.current = null;
+      void invoke('google_meet_countdown', { offer: null }).catch(console.error);
+      const action = observation.response[1];
+      if (action === 'cancel') {
+        if (offer.action === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
+        else suppress(offer.call);
+      } else {
+        void run(offer.action, offer.call, action === 'execute');
+      }
+      return;
+    }
+    void invoke('google_meet_countdown', { offer: { call: offer.call, nonce, phase } }).catch(console.error);
+  }, [key, sample, state.googleMeetOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const showSources = state.isRecording && !finalizing;
   if (!offer && !showSources && !finalizing && !state.isStartingRecording && !probeError && !controlError && !statusError) return null;
@@ -204,7 +204,7 @@ function MacRecordingPanel() {
       {offer && <div className="space-y-2">
         <p role="status" className="font-medium">{offer.action === 'stop' ? 'Google Meet call ended' : 'Google Meet call detected'}</p>
         {offer.action !== 'stop' && <p className="text-muted-foreground">Not recording. Only record with participants&apos; consent.</p>}
-        {offer.action !== 'prompt' && <p>{seconds === null ? 'Bring Meetily forward to begin the countdown.' : `${offer.action === 'start' ? 'Starting' : 'Stopping'} in ${seconds}s`}</p>}
+        {offer.action !== 'prompt' && <p>Countdown is shown in the foreground Meet tab.</p>}
         <div className="flex gap-2">
           <Button size="sm" variant={offer.action === 'stop' ? 'destructive' : 'default'} onClick={() => void run(offer.action === 'stop' ? 'stop' : 'start', offer.call)}>
             {offer.action === 'stop' ? 'Stop now' : offer.action === 'start' ? 'Start now' : 'Start recording'}

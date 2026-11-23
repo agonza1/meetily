@@ -6,6 +6,6 @@
   "background": { "service_worker": "bridge.js" },
   "content_scripts": [{
     "matches": ["https://meet.google.com/*"],
-    "js": ["signals.js", "observe.js"]
+    "js": ["signals.js", "countdown.js", "observe.js"]
   }]
 }

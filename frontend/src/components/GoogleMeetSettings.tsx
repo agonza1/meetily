@@ -42,7 +42,7 @@ export function GoogleMeetSettings() {
         <span id="meet-stop">Stop automatically after leaving an automatically recorded call</span>
         <Switch aria-labelledby="meet-stop" disabled={!preferences.enabled} checked={preferences.autoStop} onCheckedChange={value => update('autoStop', value)} />
       </div>
-      <p className="text-sm text-muted-foreground">Keep Meetily in front to run either countdown. Get participants&apos; consent before recording.</p>
+      <p className="text-sm text-muted-foreground">Countdowns run in the visible, focused Meet tab. Get participants&apos; consent before recording.</p>
     </section>
   );
 }
