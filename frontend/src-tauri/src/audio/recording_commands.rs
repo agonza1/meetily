@@ -657,6 +657,28 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     system_device_name: Option<String>,
     meeting_name: Option<String>,
 ) -> Result<(), String> {
+    start_with_devices(app, mic_device_name, system_device_name, meeting_name, None).await
+}
+
+#[tauri::command]
+pub async fn start_recording_for_google_meet<R: Runtime>(
+    app: AppHandle<R>,
+    mic_device_name: Option<String>,
+    system_device_name: Option<String>,
+    meeting_name: Option<String>,
+    call: uuid::Uuid,
+    automatic: bool,
+) -> Result<(), String> {
+    start_with_devices(app, mic_device_name, system_device_name, meeting_name, Some((call, automatic))).await
+}
+
+async fn start_with_devices<R: Runtime>(
+    app: AppHandle<R>,
+    mic_device_name: Option<String>,
+    system_device_name: Option<String>,
+    meeting_name: Option<String>,
+    google_meet: Option<(uuid::Uuid, bool)>,
+) -> Result<(), String> {
     info!(
         "Starting recording with specific devices; microphone_configured={}, system_audio_configured={}, meeting_name_configured={}",
         mic_device_name.is_some(),
@@ -712,6 +734,12 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     let (mic_device_name, system_device_name) = super::recording_preferences::resolve_start_devices(&prefs, mic_device_name, system_device_name).await?;
     let auto_save = prefs.auto_save;
 
+    if let Some((call, _)) = google_meet {
+        if !crate::google_meet::confirms(call, crate::google_meet::Phase::Joined) {
+            return Err("Google Meet is no longer confirmed joined. Start manually if needed.".into());
+        }
+    }
+
     #[cfg(target_os = "linux")]
     let (mic_device, system_device) = resolve_linux_devices_for_start(&app, mic_device_name.as_deref(), system_device_name.as_deref()).await?;
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
@@ -731,6 +759,9 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
 
     // Create new recording manager
     let mut manager = RecordingManager::new();
+    if let Some((call, true)) = google_meet {
+        let _ = manager.get_state().google_meet_owner.set((call, uuid::Uuid::new_v4()));
+    }
 
     // Always ensure a meeting name is set so incremental saver initializes
     let effective_meeting_name = meeting_name.clone().unwrap_or_else(|| {
@@ -864,6 +895,27 @@ pub async fn stop_recording<R: Runtime>(
     args: RecordingArgs,
 ) -> Result<StopOutcome, String> {
     stop_recording_for_session(app, args, None).await
+}
+
+#[tauri::command]
+pub async fn stop_recording_for_google_meet<R: Runtime>(
+    app: AppHandle<R>,
+    call: uuid::Uuid,
+    start: uuid::Uuid,
+) -> Result<StopOutcome, String> {
+    let session = RECORDING_MANAGER.lock().unwrap().as_ref().and_then(|manager| {
+        let state = manager.get_state();
+        (state.google_meet_owner.get() == Some(&(call, start))).then(|| state.clone())
+    });
+    let Some(session) = session else { return Ok(StopOutcome::NotActive) };
+    if !crate::google_meet::confirms(call, crate::google_meet::Phase::Ended) {
+        return Ok(StopOutcome::NotActive);
+    }
+    let outcome = stop_recording_for_session(app.clone(), RecordingArgs { save_path: String::new() }, Some(&session)).await?;
+    if outcome == StopOutcome::Stopped {
+        app.emit("recording-stop-complete", true).map_err(|e| e.to_string())?;
+    }
+    Ok(outcome)
 }
 
 async fn stop_recording_for_session<R: Runtime>(
@@ -1403,6 +1455,10 @@ pub async fn get_recording_state() -> serde_json::Value {
             "is_active": manager.is_active(),
             "recording_duration": manager.get_recording_duration(),
             "active_duration": manager.get_active_recording_duration(),
+            "google_meet_owner": manager.get_state().google_meet_owner.get(),
+            "microphone_available": manager.source_open(true),
+            "system_available": manager.source_open(false),
+            "audio_warning": manager.get_state().get_last_error().map(|error| error.user_message().to_owned()),
             "total_pause_duration": manager.get_total_pause_duration(),
             "current_pause_duration": manager.get_current_pause_duration()
         })
@@ -1729,6 +1785,10 @@ fn spawn_device_event_processor<R: Runtime>(
             match event {
                 DeviceEvent::DeviceDisconnected { ref device_name, ref device_type } => {
                     info!("[DEVICE_EVENTS] Device disconnected: '{}' ({:?})", device_name, device_type);
+                    #[cfg(target_os = "macos")]
+                    if matches!(device_type, DeviceMonitorType::SystemAudio) && session_live(&session) {
+                        session.report_error(super::recording_state::AudioError::DeviceDisconnected);
+                    }
                     // The only automatic mid-recording mic change allowed:
                     // when the active microphone dies, fall back to the
                     // system default input. Triggered after the device

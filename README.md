@@ -99,6 +99,7 @@ Whether you're a defense consultant, enterprise executive, legal professional, o
 
 - **Local First:** All processing is done on your machine. No data ever leaves your computer.
 - **Real-time Transcription:** Get a live transcript of your meeting as it happens.
+- **Google Meet (Community fork, macOS):** Optional Chrome-based joined-call prompts and recording controls. See [setup and limitations](docs/google-meet-recording.md).
 - **AI-Powered Summaries:** Generate summaries of your meetings using powerful language models.
 - **Multi-Platform:** Native apps for Windows and macOS (Apple Silicon). On Linux, build from source.
 - **Open Source:** Meetily is open source and free to use.

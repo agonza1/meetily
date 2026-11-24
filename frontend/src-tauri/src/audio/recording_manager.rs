@@ -659,6 +659,10 @@ impl RecordingManager {
     pub fn get_state(&self) -> &Arc<RecordingState> {
         &self.state
     }
+
+    pub fn source_open(&self, microphone: bool) -> bool {
+        self.stream_manager.source_open(microphone)
+    }
 }
 
 impl Default for RecordingManager {

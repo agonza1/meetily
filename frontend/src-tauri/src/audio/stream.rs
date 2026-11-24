@@ -867,6 +867,13 @@ impl AudioStreamManager {
         stream.as_ref().is_some_and(|stream| !stream.has_ended())
     }
 
+    pub fn source_open(&self, microphone: bool) -> bool {
+        #[cfg(target_os = "linux")]
+        return self.has_working_stream(microphone);
+        #[cfg(not(target_os = "linux"))]
+        if microphone { self.microphone_stream.is_some() } else { self.system_stream.is_some() }
+    }
+
     #[cfg(target_os = "linux")]
     pub fn has_working_streams(&self) -> bool {
         self.has_working_stream(true) || self.has_working_stream(false)

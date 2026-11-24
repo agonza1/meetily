@@ -4,7 +4,7 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
-import { recordingService } from '@/services/recordingService';
+import { recordingService, type GoogleMeetStart } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import {
@@ -21,7 +21,7 @@ const isTranscriptionRuntimeStartError = (error: unknown) =>
   String(error) === TRANSCRIPTION_RUNTIME_START_ERROR_CODE;
 
 interface UseRecordingStartReturn {
-  handleRecordingStart: () => Promise<void>;
+  handleRecordingStart: (meet?: GoogleMeetStart) => Promise<void>;
   isAutoStarting: boolean;
 }
 
@@ -43,7 +43,8 @@ interface TranscriptConfig {
 export function useRecordingStart(
   isRecording: boolean,
   setIsRecording: (value: boolean) => void,
-  showModal?: (name: 'modelSelector', message?: string) => void
+  showModal?: (name: 'modelSelector', message?: string) => void,
+  listenForSidebar = true,
 ): UseRecordingStartReturn {
   const [isAutoStarting, setIsAutoStarting] = useState(false);
 
@@ -116,7 +117,7 @@ export function useRecordingStart(
   const checkModelReady = checkTranscriptionModelReady;
 
   // Handle manual recording start (from button click)
-  const handleRecordingStart = useCallback(async () => {
+  const handleRecordingStart = useCallback(async (meet?: GoogleMeetStart) => {
     if (isStartingRef.current) {
       console.log('handleRecordingStart ignored - start already in progress');
       return;
@@ -160,7 +161,8 @@ export function useRecordingStart(
       await recordingService.startRecordingWithDevices(
         selectedDevices?.micDevice || null,
         selectedDevices?.systemDevice || null,
-        randomTitle
+        randomTitle,
+        meet,
       );
       console.log('Backend recording started successfully');
 
@@ -209,6 +211,7 @@ export function useRecordingStart(
 
   // Check for autoStartRecording flag and start recording automatically
   useEffect(() => {
+    if (!listenForSidebar) return;
     const checkAutoStartRecording = async () => {
       if (typeof window !== 'undefined') {
         const shouldAutoStart = sessionStorage.getItem('autoStartRecording');
@@ -291,6 +294,7 @@ export function useRecordingStart(
 
     checkAutoStartRecording();
   }, [
+    listenForSidebar,
     isRecording,
     isAutoStarting,
     selectedDevices,
@@ -307,6 +311,7 @@ export function useRecordingStart(
 
   // Listen for direct recording trigger from sidebar when already on home page
   useEffect(() => {
+    if (!listenForSidebar) return;
     const handleDirectStart = async () => {
       if (isRecording || isAutoStarting) {
         console.log('Recording already in progress, ignoring direct start event');
@@ -391,6 +396,7 @@ export function useRecordingStart(
       window.removeEventListener('start-recording-from-sidebar', handleDirectStart);
     };
   }, [
+    listenForSidebar,
     isRecording,
     isAutoStarting,
     selectedDevices,

@@ -39,6 +39,9 @@ pub(crate) use perf_trace;
 pub mod analytics;
 pub mod api;
 pub mod audio;
+mod google_meet;
+#[cfg(target_os = "macos")]
+pub use google_meet::run_chrome_host as run_google_meet_chrome_host;
 pub mod config;
 pub mod console_utils;
 pub mod database;
@@ -813,6 +816,12 @@ pub fn run() {
             audio::recording_commands::resume_recording,
             audio::recording_commands::is_recording_paused,
             audio::recording_commands::get_recording_state,
+            google_meet::google_meet_probe,
+            google_meet::google_meet_attention,
+            google_meet::google_meet_countdown,
+            google_meet::google_meet_confirm_execute,
+            audio::recording_commands::start_recording_for_google_meet,
+            audio::recording_commands::stop_recording_for_google_meet,
             audio::recording_commands::get_meeting_folder_path,
             // Reload sync commands (retrieve transcript history and meeting name)
             audio::recording_commands::get_transcript_history,

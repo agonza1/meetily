@@ -99,6 +99,8 @@ pub struct RecordingStats {
 
 /// Unified state management for audio recording
 pub struct RecordingState {
+    // (Call, unique start): the same call token alone cannot authorize a stale stop.
+    pub(crate) google_meet_owner: std::sync::OnceLock<(uuid::Uuid, uuid::Uuid)>,
     #[cfg(target_os = "linux")]
     pub(crate) capture_cancel: Mutex<Arc<AtomicBool>>,
     // Core recording state
@@ -134,6 +136,7 @@ pub struct RecordingState {
 impl RecordingState {
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
+            google_meet_owner: std::sync::OnceLock::new(),
             #[cfg(target_os = "linux")]
             capture_cancel: Mutex::new(Arc::new(AtomicBool::new(false))),
             is_recording: AtomicBool::new(false),
@@ -410,6 +413,7 @@ impl RecordingState {
 impl Default for RecordingState {
     fn default() -> Self {
         Self {
+            google_meet_owner: std::sync::OnceLock::new(),
             #[cfg(target_os = "linux")]
             capture_cancel: Mutex::new(Arc::new(AtomicBool::new(false))),
             is_recording: AtomicBool::new(false),

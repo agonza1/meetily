@@ -25,6 +25,7 @@ import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcess
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
+import { MeetRecordingPanel } from '@/components/MeetRecordingPanel'
 
 
 const sourceSans3 = Source_Sans_3({
@@ -256,6 +257,7 @@ export default function RootLayout({
                                   <MainContent>{children}</MainContent>
                                 </div>
                               )}
+                              {onboardingCompleted && <MeetRecordingPanel />}
                               {/* Import audio overlay and dialog */}
                               <ImportDropOverlay visible={showDropOverlay} />
                               <ConditionalImportDialog
