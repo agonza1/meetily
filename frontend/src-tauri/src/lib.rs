@@ -818,6 +818,8 @@ pub fn run() {
             audio::recording_commands::get_recording_state,
             google_meet::google_meet_probe,
             google_meet::google_meet_attention,
+            tray::open_recording_companion,
+            tray::open_recording_companion_settings,
             google_meet::google_meet_countdown,
             google_meet::google_meet_confirm_execute,
             audio::recording_commands::start_recording_for_google_meet,

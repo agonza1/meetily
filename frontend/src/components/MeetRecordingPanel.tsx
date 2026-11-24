@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { emit } from '@tauri-apps/api/event';
-import { platform } from '@tauri-apps/plugin-os';
+import { emit, emitTo, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
+import { saveGoogleMeetPreference } from '@/components/GoogleMeetSettings';
 import { Button } from '@/components/ui/button';
 import { useConfig } from '@/contexts/ConfigContext';
 import { RecordingStatus, useRecordingState } from '@/contexts/RecordingStateContext';
@@ -12,6 +13,10 @@ import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { cachedDeviceLabel } from '@/lib/audioDevices';
 import { meetPreferencesKey, offerFor, parseMeetPreferences, updateEvidence, type Evidence, type MeetObservation } from '@/lib/googleMeetDetection';
 import { recordingService } from '@/services/recordingService';
+import {
+  COMPANION_ACTION, COMPANION_REQUEST, COMPANION_SNAPSHOT, COMPANION_WINDOW,
+  isCompanionAction, isMacRecordingCompanion, type CompanionSnapshot,
+} from '@/lib/recordingCompanion';
 
 function read(key: string) {
   try { return localStorage.getItem(key); } catch { return null; }
@@ -28,12 +33,13 @@ function readSuppressed(): Set<string> {
 export function MeetRecordingPanel() {
   const [isMac, setIsMac] = useState(false);
   useEffect(() => {
-    try { setIsMac(platform() === 'macos'); } catch { /* Not in the desktop app. */ }
+    setIsMac(isMacRecordingCompanion());
   }, []);
   return isMac ? <MacRecordingPanel /> : null;
 }
 
 function MacRecordingPanel() {
+  const router = useRouter();
   const state = useRecordingState();
   const { selectedDevices } = useConfig();
   const { handleRecordingStart } = useRecordingStart(state.isRecording, () => {}, undefined, false);
@@ -49,6 +55,7 @@ function MacRecordingPanel() {
   const alerted = useRef<string | null>(null);
   const browserOffer = useRef<{ key: string; nonce: string } | null>(null);
   const checkingExecute = useRef<string | null>(null);
+  const companion = useRef<{ snapshot: CompanionSnapshot; handle: (action: unknown) => void } | null>(null);
 
   useEffect(() => () => { browserOffer.current = null; }, []);
 
@@ -129,9 +136,9 @@ function MacRecordingPanel() {
     setControlError(null);
     setPending(action);
     try {
-      if (action === 'start' && call) {
-        if (!suppress(call) && automatic) throw new Error('Could not save the call override. Start manually instead.');
-        await handleRecordingStart({ call, automatic });
+      if (action === 'start') {
+        if (call && !suppress(call) && automatic) throw new Error('Could not save the call override. Start manually instead.');
+        await handleRecordingStart(call ? { call, automatic } : undefined);
       } else if (action === 'stop') {
         if (call) {
           const owner = state.googleMeetOwner;
@@ -198,9 +205,107 @@ function MacRecordingPanel() {
     void invoke('google_meet_countdown', { offer: { call: offer.call, nonce, phase } }).catch(console.error);
   }, [key, sample, state.googleMeetOwner]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  function acceptOffer() {
+    if (offer) void run(offer.action === 'stop' ? 'stop' : 'start', offer.call);
+  }
+
+  function dismissOffer() {
+    if (!offer) return;
+    withdrawBrowserOffer();
+    if (offer.action === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
+    else suppress(offer.call);
+  }
+
+  const active = Math.floor(state.activeDuration ?? 0);
+  let phase: CompanionSnapshot['phase'] = 'idle';
+  if (finalizing) phase = 'saving';
+  else if (state.isStartingRecording || pending === 'start') phase = 'starting';
+  else if (state.isRecording) phase = state.isPaused ? 'paused' : 'recording';
+  else if (state.status === RecordingStatus.ERROR) phase = 'error';
+  const microphone = selectedDevices?.micDevice ? cachedDeviceLabel(selectedDevices.micDevice) : 'Default';
+  const systemAudio = selectedDevices?.systemDevice ? cachedDeviceLabel(selectedDevices.systemDevice) : 'Default';
+  const { microphoneAvailable, systemAvailable } = state;
+  const companionOffer = offer?.action ?? null;
+  const companionMessage = controlError ?? statusError ?? state.audioWarning ??
+    (probeError ? 'Could not check Google Meet. Use manual recording controls.' : undefined);
+  const snapshot = useMemo<CompanionSnapshot>(() => ({
+    phase, elapsedSeconds: active, microphone, systemAudio, microphoneAvailable, systemAvailable,
+    preferences: prefs, offer: companionOffer, message: companionMessage, busy,
+  }), [phase, active, microphone, systemAudio, microphoneAvailable, systemAvailable,
+    prefs, companionOffer, companionMessage, busy]);
+
+  useEffect(() => {
+    companion.current = {
+      snapshot,
+      handle(action) {
+        if (!isCompanionAction(action)) return;
+        if (action.type === 'settings') {
+          void invoke('open_recording_companion_settings')
+            .then(() => router.push('/settings?tab=recording'))
+            .catch(console.error);
+          return;
+        }
+        if (action.type === 'preference') {
+          try {
+            saveGoogleMeetPreference(action.key, action.value);
+            setControlError(null);
+          } catch {
+            setControlError('Could not save Google Meet preferences.');
+          }
+          return;
+        }
+        if (busy || inFlight.current) return;
+        switch (action.type) {
+          case 'start':
+            if (!state.isRecording) void run('start');
+            break;
+          case 'pause':
+            if (state.isRecording && !state.isPaused) void run('pause');
+            break;
+          case 'resume':
+            if (state.isRecording && state.isPaused) void run('pause');
+            break;
+          case 'stop':
+            if (state.isRecording) void run('stop');
+            break;
+          case 'accept-offer':
+            acceptOffer();
+            break;
+          case 'dismiss-offer':
+            dismissOffer();
+            break;
+        }
+      },
+    };
+  });
+
+  useEffect(() => {
+    let disposed = false;
+    const unlisteners: UnlistenFn[] = [];
+    function register(registration: Promise<UnlistenFn>) {
+      void registration.then(unlisten => {
+        if (disposed) unlisten();
+        else unlisteners.push(unlisten);
+      }).catch(console.error);
+    }
+    register(listen(COMPANION_REQUEST, () => {
+      if (companion.current) {
+        void emitTo(COMPANION_WINDOW, COMPANION_SNAPSHOT, companion.current.snapshot).catch(console.error);
+      }
+    }, { target: 'main' }));
+    register(listen<unknown>(COMPANION_ACTION, ({ payload }) => companion.current?.handle(payload), { target: 'main' }));
+    return () => {
+      disposed = true;
+      unlisteners.forEach(unlisten => unlisten());
+    };
+  }, []);
+
+  useEffect(() => {
+    void emitTo(COMPANION_WINDOW, COMPANION_SNAPSHOT, snapshot).catch(console.error);
+  }, [snapshot]);
+
   const showSources = state.isRecording && !finalizing;
   if (!offer && !showSources && !finalizing && !state.isStartingRecording && !probeError && !controlError && !statusError) return null;
-  const active = Math.floor(state.activeDuration ?? 0);
   const duration = `${String(Math.floor(active / 60)).padStart(2, '0')}:${String(active % 60).padStart(2, '0')}`;
   const source = (name: string | null | undefined, available: boolean | undefined) =>
     `${name ? cachedDeviceLabel(name) : 'Default'} configured | ${available === undefined ? 'checking' : available ? 'stream open' : 'unavailable'}`;
@@ -226,14 +331,10 @@ function MacRecordingPanel() {
         {offer.action !== 'stop' && <p className="text-muted-foreground">Not recording. Only record with participants&apos; consent.</p>}
         {offer.action !== 'prompt' && <p>Countdown is shown in the foreground Meet tab.</p>}
         <div className="flex gap-2">
-          <Button size="sm" variant={offer.action === 'stop' ? 'destructive' : 'default'} onClick={() => void run(offer.action === 'stop' ? 'stop' : 'start', offer.call)}>
+          <Button size="sm" variant={offer.action === 'stop' ? 'destructive' : 'default'} onClick={acceptOffer}>
             {offer.action === 'stop' ? 'Stop now' : offer.action === 'start' ? 'Start now' : 'Start recording'}
           </Button>
-          <Button size="sm" variant="outline" onClick={() => {
-            withdrawBrowserOffer();
-            if (offer.action === 'stop' && state.googleMeetOwner) cancelStop(state.googleMeetOwner[1]);
-            else suppress(offer.call);
-          }}>
+          <Button size="sm" variant="outline" onClick={dismissOffer}>
             {offer.action === 'prompt' ? 'Dismiss' : 'Cancel'}
           </Button>
         </div>

@@ -75,6 +75,18 @@
                             ]
                         }
                     ]
+                },
+                {
+                    "identifier": "recording-panel",
+                    "description": "Recording controls shared with the main window",
+                    "platforms": ["macOS"],
+                    "windows": ["recording-panel"],
+                    "permissions": [
+                        "core:event:allow-listen",
+                        "core:event:allow-unlisten",
+                        "core:event:allow-emit-to",
+                        "core:window:allow-hide"
+                    ]
                 }
             ]
         }

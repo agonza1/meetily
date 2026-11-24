@@ -2,6 +2,10 @@
 
 Manual recording in Meetily and the menu bar does not require this integration. The compact in-app control shows active recording time (excluding pauses), configured devices, and whether each capture stream opened. An open stream is not proof that it supplied audio. Check permissions and device selection if a source is unavailable or an audio warning appears. Stop uses the normal audio and transcript save flow; wait for finalization to finish before starting another recording.
 
+## Menu-bar recording controls
+
+Click the Meetily menu-bar icon to open a compact panel with the recording timer, audio-source status, and Start, Pause, Resume, and Stop controls. The panel also shows when Google Meet has been detected and lets you change the three detection and automatic recording settings. Automatic countdowns remain visible in the foreground Meet tab. Right-click the icon for the native menu.
+
 ## Set up detection
 
 This preview targets Google Chrome on macOS with the Google Meet UI in English and a single Chrome profile using the extension. It uses Chrome Native Messaging, not Accessibility, Apple Events, Screen Recording for detection, or an account connection. Meetily still needs its normal macOS audio permissions to record. Get consent before recording participants.
