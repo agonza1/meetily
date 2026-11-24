@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
+import { NativeCallSettings } from './NativeCallSettings';
+import { getNativeStatus, nativeKey, parseNative, saveNative, subscribeNativeStatus } from '@/lib/nativeCallDetection';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
@@ -16,6 +18,8 @@ export function saveGoogleMeetPreference(key: keyof MeetPreferences, value: bool
 }
 
 export function GoogleMeetSettings() {
+  const [native, setNative] = useState(() => parseNative(null));
+  const status = useSyncExternalStore(subscribeNativeStatus, getNativeStatus, getNativeStatus);
   const [preferences, setPreferences] = useState<MeetPreferences | null>(null);
   useEffect(() => {
     try {
@@ -23,11 +27,13 @@ export function GoogleMeetSettings() {
       const refresh = () => {
         try {
           setPreferences(parseMeetPreferences(localStorage.getItem(meetPreferencesKey)));
+          setNative(parseNative(localStorage.getItem(nativeKey)));
         } catch { /* Unavailable desktop storage. */ }
       };
       refresh();
       window.addEventListener(meetPreferencesKey, refresh);
-      return () => window.removeEventListener(meetPreferencesKey, refresh);
+      window.addEventListener(nativeKey, refresh);
+      return () => { window.removeEventListener(meetPreferencesKey, refresh); window.removeEventListener(nativeKey, refresh); };
     } catch { /* Browser or unavailable desktop storage. */ }
   }, []);
   if (!preferences) return null;
@@ -41,7 +47,9 @@ export function GoogleMeetSettings() {
   }
 
   return (
-    <section className="space-y-3 rounded-lg border p-4" aria-labelledby="meet-detection-heading">
+    <><NativeCallSettings prefs={native} status={status} update={(key, value) => {
+      try { saveNative(key, value); } catch { toast.error('Could not save call preferences'); }
+    }} /><section className="space-y-3 rounded-lg border p-4" aria-labelledby="meet-detection-heading">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 id="meet-detection-heading" className="font-medium">Google Meet detection (experimental)</h4>
         <Button type="button" size="sm" variant="outline" onClick={() => {
@@ -65,6 +73,6 @@ export function GoogleMeetSettings() {
         <Switch aria-labelledby="meet-stop" disabled={!preferences.enabled} checked={preferences.autoStop} onCheckedChange={value => update('autoStop', value)} />
       </div>
       <p className="text-sm text-muted-foreground">Countdowns run in the visible, focused Meet tab. Get participants&apos; consent before recording.</p>
-    </section>
+    </section></>
   );
 }

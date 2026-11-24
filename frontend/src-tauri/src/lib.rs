@@ -40,6 +40,7 @@ pub mod analytics;
 pub mod api;
 pub mod audio;
 mod google_meet;
+mod native_call;
 #[cfg(target_os = "macos")]
 pub use google_meet::run_chrome_host as run_google_meet_chrome_host;
 pub mod config;
@@ -817,6 +818,7 @@ pub fn run() {
             audio::recording_commands::is_recording_paused,
             audio::recording_commands::get_recording_state,
             google_meet::google_meet_probe,
+            native_call::native_call_activity,
             google_meet::google_meet_attention,
             tray::open_recording_companion,
             tray::open_recording_companion_settings,

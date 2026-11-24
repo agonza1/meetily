@@ -21,7 +21,7 @@ const isTranscriptionRuntimeStartError = (error: unknown) =>
   String(error) === TRANSCRIPTION_RUNTIME_START_ERROR_CODE;
 
 interface UseRecordingStartReturn {
-  handleRecordingStart: (meet?: GoogleMeetStart) => Promise<void>;
+  handleRecordingStart: (meet?: GoogleMeetStart, beforeCapture?: () => Promise<boolean>) => Promise<void>;
   isAutoStarting: boolean;
 }
 
@@ -117,7 +117,7 @@ export function useRecordingStart(
   const checkModelReady = checkTranscriptionModelReady;
 
   // Handle manual recording start (from button click)
-  const handleRecordingStart = useCallback(async (meet?: GoogleMeetStart) => {
+  const handleRecordingStart = useCallback(async (meet?: GoogleMeetStart, beforeCapture?: () => Promise<boolean>) => {
     if (isStartingRef.current) {
       console.log('handleRecordingStart ignored - start already in progress');
       return;
@@ -144,9 +144,11 @@ export function useRecordingStart(
           showModal?.('modelSelector', 'Transcription model setup required');
           Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
         }
-        setStatus(RecordingStatus.IDLE);
+        if (beforeCapture) setStatus(RecordingStatus.ERROR, isDownloading ? 'Wait for the transcription model download.' : 'Download a transcription model before recording.');
+        else setStatus(RecordingStatus.IDLE);
         return;
       }
+      if (beforeCapture && !await beforeCapture()) throw new Error('Call activity or consent changed before capture. Start manually if needed.');
 
       console.log('Selected transcription model ready - setting up meeting title and state');
 

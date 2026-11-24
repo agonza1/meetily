@@ -7,6 +7,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { AudioLines, CircleAlert, LoaderCircle, Mic, Pause, Play, Settings, Square, Volume2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { NativeCallSettings } from '@/components/NativeCallSettings';
 import {
   COMPANION_ACTION,
   COMPANION_REQUEST,
@@ -169,7 +170,11 @@ export default function RecordingCompanionPage() {
                 )}
               </div>
             )}
-            {!active && !transitioning && !offer && (
+            {snapshot.nativeFamily !== null && <div className="space-y-2"><p>Possible call detected. {snapshot.nativeStatus}</p>
+              <Button onClick={() => send({ type: 'native-offer', family: snapshot.nativeFamily!, record: true })}>Start recording</Button>
+              <Button variant="outline" onClick={() => send({ type: 'native-offer', family: snapshot.nativeFamily!, record: false })}>Cancel</Button>
+            </div>}
+            {!active && !transitioning && !offer && snapshot.nativeFamily === null && (
               <Button type="button" size="sm" variant="destructive" className="w-full" disabled={snapshot.busy} onClick={() => send({ type: 'start' })}>
                 <Mic aria-hidden /> Start recording
               </Button>
@@ -209,6 +214,7 @@ export default function RecordingCompanionPage() {
               </label>
             ))}
           </section>
+          <NativeCallSettings prefs={snapshot.native} status={snapshot.nativeStatus} update={(key, value) => send({ type: 'native-preference', key, value })} />
         </div>
       ) : (
         <div className="space-y-3 p-4">

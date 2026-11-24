@@ -13,6 +13,8 @@ import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { cachedDeviceLabel } from '@/lib/audioDevices';
 import { meetPreferencesKey, offerFor, parseMeetPreferences, updateEvidence, type Evidence, type MeetObservation } from '@/lib/googleMeetDetection';
 import { recordingService } from '@/services/recordingService';
+import { nativeKey, parseNative, publishNativeStatus, saveNative } from '@/lib/nativeCallDetection';
+import { useNativeCalls } from '@/hooks/useNativeCalls';
 import {
   COMPANION_ACTION, COMPANION_REQUEST, COMPANION_SNAPSHOT, COMPANION_WINDOW,
   isCompanionAction, isMacRecordingCompanion, type CompanionSnapshot,
@@ -44,6 +46,8 @@ function MacRecordingPanel() {
   const { selectedDevices } = useConfig();
   const { handleRecordingStart } = useRecordingStart(state.isRecording, () => {}, undefined, false);
   const [prefs, setPrefs] = useState(() => parseMeetPreferences(read(meetPreferencesKey)));
+  const [native, setNative] = useState(() => parseNative(read(nativeKey)));
+  const meetEnabled = prefs.enabled && !native.enabled;
   const [sample, setSample] = useState<{ evidence: Evidence | null; now: number; observation?: MeetObservation | null }>({ evidence: null, now: 0 });
   const [probeError, setProbeError] = useState(false);
   const [controlError, setControlError] = useState<string | null>(null);
@@ -62,13 +66,15 @@ function MacRecordingPanel() {
   useEffect(() => {
     const refresh = () => setPrefs(parseMeetPreferences(read(meetPreferencesKey)));
     window.addEventListener(meetPreferencesKey, refresh);
-    return () => window.removeEventListener(meetPreferencesKey, refresh);
+    const refreshNative = () => setNative(parseNative(read(nativeKey)));
+    window.addEventListener(nativeKey, refreshNative);
+    return () => { window.removeEventListener(meetPreferencesKey, refresh); window.removeEventListener(nativeKey, refreshNative); };
   }, []);
 
   useEffect(() => {
     setSample({ evidence: null, now: 0 });
     setProbeError(false);
-    if (!prefs.enabled) {
+    if (!meetEnabled) {
       void invoke('google_meet_probe', { enabled: false }).catch(console.error);
       return;
     }
@@ -91,7 +97,7 @@ function MacRecordingPanel() {
     };
     void poll();
     return () => { alive = false; clearTimeout(timer); };
-  }, [prefs.enabled]);
+  }, [meetEnabled]);
 
   function suppress(call: string) {
     if (suppressed.has(call)) return true;
@@ -108,7 +114,11 @@ function MacRecordingPanel() {
   const finalizing = state.isStopping || state.isProcessing || state.isSaving || pending === 'stop';
   const statusError = state.status === RecordingStatus.ERROR ? state.statusMessage : undefined;
   const busy = finalizing || state.isStartingRecording || state.status === RecordingStatus.COMPLETED || pending !== null;
-  const offer = offerFor(sample.evidence, sample.now, prefs, state.isRecording, busy, state.googleMeetOwner?.[0] ?? null,
+  const nativeCall = useNativeCalls(native, state.isRecording || busy, guard => void run('start', undefined, false, guard));
+  const nativeStatus = statusError ?? controlError ?? nativeCall.status;
+  const nativeFamily = nativeCall.offer?.family ?? null;
+  useEffect(() => publishNativeStatus(nativeStatus), [nativeStatus]);
+  const offer = offerFor(sample.evidence, sample.now, { ...prefs, enabled: meetEnabled }, state.isRecording, busy, state.googleMeetOwner?.[0] ?? null,
     !!sample.evidence && suppressed.has(sample.evidence.call), state.googleMeetOwner?.[1] === stopCancelled);
   const key = offer && `${offer.call}:${offer.action}`;
 
@@ -130,7 +140,7 @@ function MacRecordingPanel() {
     void invoke('google_meet_countdown', { offer: null }).catch(console.error);
   }
 
-  async function run(action: 'start' | 'stop' | 'pause', call?: string, automatic = false) {
+  async function run(action: 'start' | 'stop' | 'pause', call?: string, automatic = false, guard?: () => Promise<boolean>) {
     if (inFlight.current) return;
     inFlight.current = true;
     setControlError(null);
@@ -138,7 +148,7 @@ function MacRecordingPanel() {
     try {
       if (action === 'start') {
         if (call && !suppress(call) && automatic) throw new Error('Could not save the call override. Start manually instead.');
-        await handleRecordingStart(call ? { call, automatic } : undefined);
+        await handleRecordingStart(call ? { call, automatic } : undefined, guard);
       } else if (action === 'stop') {
         if (call) {
           const owner = state.googleMeetOwner;
@@ -231,14 +241,23 @@ function MacRecordingPanel() {
   const snapshot = useMemo<CompanionSnapshot>(() => ({
     phase, elapsedSeconds: active, microphone, systemAudio, microphoneAvailable, systemAvailable,
     preferences: prefs, offer: companionOffer, message: companionMessage, busy,
+    native, nativeFamily, nativeStatus,
   }), [phase, active, microphone, systemAudio, microphoneAvailable, systemAvailable,
-    prefs, companionOffer, companionMessage, busy]);
+    prefs, companionOffer, companionMessage, busy, native, nativeFamily, nativeStatus]);
 
   useEffect(() => {
     companion.current = {
       snapshot,
       handle(action) {
         if (!isCompanionAction(action)) return;
+        if (action.type === 'native-preference') {
+          try { saveNative(action.key, action.value); } catch { setControlError('Could not save call preferences.'); }
+          return;
+        }
+        if (action.type === 'native-offer') {
+          if (nativeFamily === action.family && !busy) nativeCall.claim(action.family, action.record);
+          return;
+        }
         if (action.type === 'settings') {
           void invoke('open_recording_companion_settings')
             .then(() => router.push('/settings?tab=recording'))
@@ -305,13 +324,18 @@ function MacRecordingPanel() {
   }, [snapshot]);
 
   const showSources = state.isRecording && !finalizing;
-  if (!offer && !showSources && !finalizing && !state.isStartingRecording && !probeError && !controlError && !statusError) return null;
+  if (!nativeCall.offer && !offer && !showSources && !finalizing && !state.isStartingRecording && !probeError && !controlError && !statusError) return null;
   const duration = `${String(Math.floor(active / 60)).padStart(2, '0')}:${String(active % 60).padStart(2, '0')}`;
   const source = (name: string | null | undefined, available: boolean | undefined) =>
     `${name ? cachedDeviceLabel(name) : 'Default'} configured | ${available === undefined ? 'checking' : available ? 'stream open' : 'unavailable'}`;
   return (
     <aside aria-label="Meetily recording controls" className="fixed bottom-5 right-5 z-40 w-[min(24rem,calc(100vw-2.5rem))] space-y-2 rounded-lg border bg-background p-3 text-sm text-foreground shadow-lg">
       {finalizing && <p role="status" className="font-medium">Finalizing recording and transcript...</p>}
+      {nativeFamily !== null && <div className="space-y-2"><p role="status">Possible call detected. {nativeStatus}</p>
+        <p>Only record with participants&apos; consent.</p>
+        <Button onClick={() => nativeCall.claim(nativeFamily, true)}>Start recording</Button>
+        <Button variant="outline" onClick={() => nativeCall.claim(nativeFamily, false)}>Cancel</Button>
+      </div>}
       {!finalizing && state.isStartingRecording && <p role="status">Starting recording...</p>}
       {showSources && <>
         <div className="flex items-center gap-2 font-medium">

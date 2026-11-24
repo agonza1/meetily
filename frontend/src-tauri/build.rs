@@ -10,6 +10,9 @@ fn main() {
     #[cfg(target_os = "macos")]
     {
         println!("cargo:rustc-link-lib=framework=AVFoundation");
+        println!("cargo:rerun-if-changed=src/audio/process_activity.c");
+        cc::Build::new().file("src/audio/process_activity.c").compile("process_activity");
+        println!("cargo:rustc-link-lib=framework=CoreAudio");
         println!("cargo:rustc-link-lib=framework=Cocoa");
         println!("cargo:rustc-link-lib=framework=Foundation");
 
