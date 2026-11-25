@@ -4,6 +4,7 @@ import { NativeSessions, nativeKey, parseNative, type Activity, type NativePrefs
 
 export function useNativeCalls(prefs: NativePrefs, occupied: boolean, start: (guard: () => Promise<boolean>) => void) {
   const tracker = useRef(new NativeSessions());
+  const focusEpoch = useRef(0);
   const [offer, setOffer] = useState<ReturnType<NativeSessions['sample']>>(null);
   const [error, setError] = useState('');
   const latest = useRef({ occupied, start, offer });
@@ -11,11 +12,17 @@ export function useNativeCalls(prefs: NativePrefs, occupied: boolean, start: (gu
   const claim = (family: number, record: boolean, automatic = false) => {
     if (!tracker.current.claim(family)) return;
     setOffer(null);
+    // Bind automatic consent to the uninterrupted focus interval at expiry,
+    // not the interval in which model preflight or the HAL read finishes.
+    const epoch = focusEpoch.current;
+    const stillAuthorized = () => !automatic ||
+      (epoch === focusEpoch.current && document.hasFocus() && !document.hidden);
     if (record && !latest.current.occupied) latest.current.start(async () => {
+      if (!stillAuthorized()) return false;
       const rows = await invoke<Activity[]>('native_call_activity');
       const consent = parseNative(localStorage.getItem(nativeKey));
       const same = rows.filter(row => row.family === family);
-      return consent.enabled && (!automatic || consent.autoStart) && same.some(row => row.input) && same.some(row => row.output);
+      return stillAuthorized() && consent.enabled && (!automatic || consent.autoStart) && same.some(row => row.input) && same.some(row => row.output);
     });
   };
   useEffect(() => {
@@ -25,7 +32,7 @@ export function useNativeCalls(prefs: NativePrefs, occupied: boolean, start: (gu
     let alive = true;
     let timer: ReturnType<typeof setTimeout>;
     let presented: number | undefined;
-    const disarm = () => tracker.current.disarm();
+    const disarm = () => { focusEpoch.current++; tracker.current.disarm(); };
     window.addEventListener('blur', disarm);
     document.addEventListener('visibilitychange', disarm);
     const poll = async () => {

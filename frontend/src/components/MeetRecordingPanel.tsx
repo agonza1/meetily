@@ -115,7 +115,7 @@ function MacRecordingPanel() {
   const statusError = state.status === RecordingStatus.ERROR ? state.statusMessage : undefined;
   const busy = finalizing || state.isStartingRecording || state.status === RecordingStatus.COMPLETED || pending !== null;
   const nativeCall = useNativeCalls(native, state.isRecording || busy, guard => void run('start', undefined, false, guard));
-  const nativeStatus = statusError ?? controlError ?? nativeCall.status;
+  const nativeStatus = nativeCall.offer ? nativeCall.status : statusError ?? controlError ?? nativeCall.status;
   const nativeFamily = nativeCall.offer?.family ?? null;
   useEffect(() => publishNativeStatus(nativeStatus), [nativeStatus]);
   const offer = offerFor(sample.evidence, sample.now, { ...prefs, enabled: meetEnabled }, state.isRecording, busy, state.googleMeetOwner?.[0] ?? null,
