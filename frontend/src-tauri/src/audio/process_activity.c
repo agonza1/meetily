@@ -1,4 +1,5 @@
 #include <CoreAudio/CoreAudio.h>
+#include <CoreFoundation/CoreFoundation.h>
 #include <libproc.h>
 #include <string.h>
 #include <unistd.h>
@@ -12,9 +13,21 @@ static int bundle(pid_t pid, char *path) {
     return 1;
 }
 
+static int is_krisp_bridge(const char *outer_app) {
+    CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (const UInt8 *)outer_app, strlen(outer_app), true);
+    if (!url) return 0;
+    CFDictionaryRef info = CFBundleCopyInfoDictionaryForURL(url);
+    CFRelease(url);
+    if (!info) return 0;
+    CFTypeRef identifier = CFDictionaryGetValue(info, kCFBundleIdentifierKey);
+    int match = identifier && CFEqual(identifier, CFSTR("ai.krisp.krispMac"));
+    CFRelease(info);
+    return match;
+}
+
 static pid_t family(pid_t pid, const char *own) {
     char app[PROC_PIDPATHINFO_MAXSIZE], parent[PROC_PIDPATHINFO_MAXSIZE];
-    if (!bundle(pid, app) || !strcmp(app, own)) return 0;
+    if (!bundle(pid, app) || !strcmp(app, own) || is_krisp_bridge(app)) return 0;
     pid_t root = pid;
     for (unsigned depth = 0; pid > 1 && depth < 64; depth++) {
         if (pid == getpid()) return 0;

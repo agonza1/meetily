@@ -13,6 +13,7 @@ fn main() {
         println!("cargo:rerun-if-changed=src/audio/process_activity.c");
         cc::Build::new().file("src/audio/process_activity.c").compile("process_activity");
         println!("cargo:rustc-link-lib=framework=CoreAudio");
+        println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Cocoa");
         println!("cargo:rustc-link-lib=framework=Foundation");
 
