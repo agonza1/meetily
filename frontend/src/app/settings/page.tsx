@@ -30,7 +30,9 @@ function SettingsContent() {
   // Animation state for tabs
   const [activeTab, setActiveTab] = useState('general');
   useEffect(() => {
-    if (searchParams.get('tab') === 'summary') setActiveTab('summaryModels');
+    const tab = searchParams.get('tab');
+    if (tab === 'summary') setActiveTab('summaryModels');
+    if (tab === 'recording') setActiveTab('recording');
   }, [searchParams]);
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const [underlineStyle, setUnderlineStyle] = useState({ left: 0, width: 0 });

@@ -1,10 +1,19 @@
 use crate::audio::recording_commands::StopOutcome;
 use tauri::{
-    Emitter,
     menu::{MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    AppHandle, Manager, Runtime,
+    AppHandle, Emitter, Manager, Runtime,
 };
+#[cfg(target_os = "macos")]
+use tauri::{
+    tray::{MouseButton, MouseButtonState, TrayIconEvent},
+    LogicalPosition, LogicalSize, Monitor, Rect, WebviewUrl, WebviewWindowBuilder, WindowEvent,
+};
+
+#[cfg(target_os = "macos")]
+const RECORDING_PANEL: &str = "recording-panel";
+#[cfg(target_os = "macos")]
+const PANEL_SIZE: LogicalSize<f64> = LogicalSize::new(370.0, 490.0);
 
 #[derive(Debug, Clone)]
 pub enum RecordingState {
@@ -22,17 +31,187 @@ pub fn create_tray<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<()> {
     // Pass can_record=true initially, will be updated by update_tray_menu immediately
     let menu = build_menu(app, RecordingState::Stopped, true)?;
 
-    TrayIconBuilder::with_id("main-tray")
+    let tray = TrayIconBuilder::with_id("main-tray")
         .menu(&menu)
         .tooltip("Meetily")
         .icon(app.default_window_icon().unwrap().clone())
-        .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()))
-        .build(app)?;
+        .on_menu_event(|app, event| handle_menu_event(app, event.id.as_ref()));
+
+    #[cfg(target_os = "macos")]
+    let tray = tray
+        .show_menu_on_left_click(false)
+        .on_tray_icon_event(|tray, event| {
+            if let TrayIconEvent::Click {
+                button: MouseButton::Left,
+                button_state: MouseButtonState::Up,
+                rect,
+                ..
+            } = event
+            {
+                let app = tray.app_handle().clone();
+                // Create the WKWebView after AppKit has finished dispatching the status item click.
+                tauri::async_runtime::spawn(async move {
+                    let panel_app = app.clone();
+                    if let Err(error) = app.run_on_main_thread(move || {
+                        if let Err(error) = toggle_recording_panel(&panel_app, rect) {
+                            log::error!("Could not open the recording panel: {error}");
+                        }
+                    }) {
+                        log::error!("Could not schedule the recording panel: {error}");
+                    }
+                });
+            }
+        });
+
+    tray.build(app)?;
 
     // Update tray menu with actual recording state after creation
     update_tray_menu(app);
 
     Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn toggle_recording_panel<R: Runtime>(app: &AppHandle<R>, rect: Rect) -> tauri::Result<()> {
+    if let Some(window) = app.get_webview_window(RECORDING_PANEL) {
+        if window.is_visible()? {
+            return window.hide();
+        }
+    }
+
+    let primary = app.primary_monitor()?;
+    let clicked_monitor = match (&primary, app.cursor_position()) {
+        (Some(primary), Ok(cursor)) => {
+            // Tao reports the cursor in primary-display pixels on macOS. Monitor lookup
+            // and window placement take desktop points, even across mixed display scales.
+            let point = cursor.to_logical::<f64>(primary.scale_factor());
+            app.monitor_from_point(point.x, point.y)?
+        }
+        _ => None,
+    };
+    show_recording_panel(app, Some(rect), clicked_monitor.or(primary))
+}
+
+#[cfg(target_os = "macos")]
+fn show_recording_panel<R: Runtime>(
+    app: &AppHandle<R>,
+    rect: Option<Rect>,
+    monitor: Option<Monitor>,
+) -> tauri::Result<()> {
+    let window = if let Some(window) = app.get_webview_window(RECORDING_PANEL) {
+        if window.is_visible()? {
+            return window.set_focus();
+        }
+        window
+    } else {
+        let window = WebviewWindowBuilder::new(
+            app,
+            RECORDING_PANEL,
+            WebviewUrl::App(RECORDING_PANEL.into()),
+        )
+        .title("Meetily Recording")
+        .inner_size(PANEL_SIZE.width, PANEL_SIZE.height)
+        .decorations(false)
+        .resizable(false)
+        .always_on_top(true)
+        .focused(false)
+        .visible(false)
+        .build()?;
+
+        let panel = window.clone();
+        window.on_window_event(move |event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let _ = panel.hide();
+            }
+            WindowEvent::Focused(false) => {
+                // Allow a status item click to finish toggling before hiding on blur.
+                let panel = panel.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_millis(120)).await;
+                    if matches!(panel.is_focused(), Ok(false)) {
+                        let _ = panel.hide();
+                    }
+                });
+            }
+            _ => {}
+        });
+        window
+    };
+
+    if let Some(monitor) = monitor {
+        let scale = monitor.scale_factor();
+        let work_area = monitor.work_area();
+        let origin = work_area.position.to_logical::<f64>(scale);
+        let available = work_area.size.to_logical::<f64>(scale);
+        let gap = 8.0;
+        let width = PANEL_SIZE.width.min((available.width - 2.0 * gap).max(1.0));
+        let height = PANEL_SIZE
+            .height
+            .min((available.height - 2.0 * gap).max(1.0));
+        let left = origin.x + gap;
+        let top = origin.y + gap;
+        let right = (origin.x + available.width - width - gap).max(left);
+        let bottom = (origin.y + available.height - height - gap).max(top);
+        let placement = rect
+            .map(|rect| {
+                let anchor = rect.position.to_logical::<f64>(scale);
+                let icon = rect.size.to_logical::<f64>(scale);
+                LogicalPosition::new(
+                    (anchor.x + (icon.width - width) / 2.0).clamp(left, right),
+                    (anchor.y + icon.height + gap).clamp(top, bottom),
+                )
+            })
+            .unwrap_or_else(|| LogicalPosition::new(right, top));
+        window.set_size(LogicalSize::new(width, height))?;
+        window.set_position(placement)?;
+    } else {
+        window.center()?;
+    }
+    window.show()?;
+    window.set_focus()
+}
+
+#[tauri::command]
+pub(crate) async fn open_recording_companion<R: Runtime>(app: AppHandle<R>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        let panel_app = app.clone();
+        app.run_on_main_thread(move || {
+            let _ = send.send((|| {
+                let rect = match panel_app.tray_by_id("main-tray") {
+                    Some(tray) => tray.rect()?,
+                    None => None,
+                };
+                let primary = panel_app.primary_monitor()?;
+                let monitor = match panel_app.get_webview_window("main") {
+                    Some(main) => main.current_monitor()?.or(primary),
+                    None => primary,
+                };
+                show_recording_panel(&panel_app, rect, monitor)
+            })());
+        })
+        .map_err(|error| error.to_string())?;
+        receive
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| error.to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Err("The recording panel is available on macOS.".into())
+    }
+}
+
+#[tauri::command]
+pub(crate) fn open_recording_companion_settings<R: Runtime>(app: AppHandle<R>) {
+    #[cfg(target_os = "macos")]
+    if let Some(panel) = app.get_webview_window(RECORDING_PANEL) {
+        let _ = panel.hide();
+    }
+    focus_main_window(&app);
 }
 
 fn handle_menu_event<R: Runtime>(app: &AppHandle<R>, item_id: &str) {
