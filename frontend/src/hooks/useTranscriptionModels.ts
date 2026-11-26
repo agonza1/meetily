@@ -1,5 +1,7 @@
 import { useState, useCallback, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { DEFAULT_PARAKEET_MODEL } from '@/constants/modelDefaults';
+import { PARAKEET_MLX_MODEL } from '@/lib/parakeet';
 
 export interface RawModelInfo {
   name: string;
@@ -17,6 +19,15 @@ export interface ModelOption {
 interface TranscriptModelConfig {
   provider?: string;
   model?: string;
+}
+
+export function getDefaultTranscriptionModel(models: ModelOption[], config?: TranscriptModelConfig) {
+  const provider = config?.provider === 'localWhisper' ? 'whisper' : config?.provider;
+  // The MLX option only runs after recording. Offline audio tools use Lightning.
+  const name = provider === 'parakeet' && config?.model === PARAKEET_MLX_MODEL
+    ? DEFAULT_PARAKEET_MODEL
+    : config?.model;
+  return models.find(model => model.provider === provider && model.name === name) ?? models[0];
 }
 
 /**
@@ -79,26 +90,10 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
 
     setAvailableModels(allModels);
 
-    // Set default model based on user's saved configuration
-    const configuredProvider = transcriptModelConfig?.provider || '';
-    const configuredModel = transcriptModelConfig?.model || '';
-
-    // Try to match the configured model
-    // Note: 'localWhisper' in config maps to 'whisper' provider in model list
-    const configuredMatch = allModels.find(
-      (m) =>
-        (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
-    );
-
-    // Only set default model if user hasn't manually selected one
     if (!userSelectedRef.current) {
-      if (configuredMatch) {
-        // Use the configured model if available
-        setSelectedModelKey(`${configuredMatch.provider}:${configuredMatch.name}`);
-      } else if (allModels.length > 0) {
-        // Fall back to first available model
-        setSelectedModelKey(`${allModels[0].provider}:${allModels[0].name}`);
+      const selectedModel = getDefaultTranscriptionModel(allModels, transcriptModelConfig);
+      if (selectedModel) {
+        setSelectedModelKey(`${selectedModel.provider}:${selectedModel.name}`);
       }
     }
 

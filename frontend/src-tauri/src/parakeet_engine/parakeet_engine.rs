@@ -117,6 +117,16 @@ const PARAKEET_V2_ARTIFACTS: &[ArtifactSpec] = &[
     ArtifactSpec { filename: "vocab.txt", exact_bytes: 9_384 },
 ];
 
+pub(crate) const PARAKEET_MLX_MODEL_NAME: &str = "parakeet-tdt-0.6b-v3-mlx";
+
+pub(crate) fn live_model_name(selection: &str) -> &str {
+    if selection == PARAKEET_MLX_MODEL_NAME {
+        crate::config::DEFAULT_PARAKEET_MODEL
+    } else {
+        selection
+    }
+}
+
 const PARAKEET_MODEL_SPECS: &[ModelSpec] = &[
     ModelSpec {
         name: "parakeet-tdt-0.6b-v3-int8",
@@ -126,6 +136,19 @@ const PARAKEET_MODEL_SPECS: &[ModelSpec] = &[
         description: "Real time on M4 Max, latest version with int8 quantization",
         source_base_url: "https://huggingface.co/istupakov/parakeet-tdt-0.6b-v3-onnx/resolve/8f23f0c03c8761650bdb5b40aaf3e40d2c15f1ce",
         artifacts: PARAKEET_V3_ARTIFACTS,
+    },
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    ModelSpec {
+        name: PARAKEET_MLX_MODEL_NAME,
+        size_mb: 2509,
+        quantization: QuantizationType::FP32,
+        speed: "Apple Silicon GPU",
+        description: "Apple Silicon GPU model for the final transcript after recording.",
+        source_base_url: "https://huggingface.co/mlx-community/parakeet-tdt-0.6b-v3/resolve/ed2b7e8c15f9aaa0b5772e2efb986255eaef7e15",
+        artifacts: &[
+            ArtifactSpec { filename: "config.json", exact_bytes: 244_093 },
+            ArtifactSpec { filename: "model.safetensors", exact_bytes: 2_508_288_736 },
+        ],
     },
     ModelSpec {
         name: "parakeet-tdt-0.6b-v2-int8",
@@ -330,6 +353,12 @@ impl ParakeetEngine {
 
     /// Discover available Parakeet models.
     pub async fn discover_models(&self) -> Result<Vec<ModelInfo>> {
+        let mut models = self.discover_downloadable_models().await?;
+        models.retain(|model| model.name != PARAKEET_MLX_MODEL_NAME);
+        Ok(models)
+    }
+
+    pub(super) async fn discover_downloadable_models(&self) -> Result<Vec<ModelInfo>> {
         self.discover_models_from_specs(PARAKEET_MODEL_SPECS).await
     }
 
@@ -430,6 +459,7 @@ impl ParakeetEngine {
 
     /// Load a Parakeet model
     pub async fn load_model(&self, model_name: &str) -> Result<()> {
+        let model_name = live_model_name(model_name);
         let model_info = {
             let models = self.available_models.read().await;
             models
@@ -553,6 +583,30 @@ impl ParakeetEngine {
 
 
         Ok(result.text)
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) async fn transcribe_saved_recording(
+        &self,
+        path: std::path::PathBuf,
+    ) -> Result<Vec<(String, f64, f64)>> {
+        let current = self.current_model.clone();
+        tokio::task::spawn_blocking(move || {
+            let mut guard = current.try_write()
+                .map_err(|_| anyhow!("Parakeet is busy"))?;
+            let model = guard.as_mut().ok_or_else(|| anyhow!("Parakeet is not loaded"))?;
+            crate::audio::final_transcription::transcribe_saved_audio(&path, |samples| {
+                model.transcribe_samples(samples).map_err(Into::into)
+            })
+        }).await?
+    }
+
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    pub(crate) fn downloaded_mlx_model(&self) -> Option<PathBuf> {
+        let spec = find_model_spec(PARAKEET_MLX_MODEL_NAME)?;
+        let path = self.models_dir.join(spec.name);
+        Self::validate_model_directory(&path, spec.artifacts).ok()?;
+        Some(path)
     }
 
     /// Get the models directory path
@@ -1372,6 +1426,39 @@ mod tests {
             .expect("test model remains registered")
             .status
             .clone()
+    }
+
+    #[tokio::test]
+    async fn mlx_files_are_downloadable_only_on_apple_silicon_macos() {
+        let (_temp_dir, engine, _) = test_engine().await;
+        let spec = find_model_spec(PARAKEET_MLX_MODEL_NAME);
+        assert_eq!(spec.is_some(), cfg!(all(target_os = "macos", target_arch = "aarch64")));
+
+        if let Some(spec) = spec {
+            let path = engine.models_dir.join(spec.name);
+            fs::create_dir_all(&path).await.unwrap();
+            for artifact in spec.artifacts {
+                let file = fs::File::create(path.join(artifact.filename)).await.unwrap();
+                file.set_len(artifact.exact_bytes).await.unwrap();
+            }
+
+            let models = engine.discover_downloadable_models().await.unwrap();
+            let names: Vec<_> = models.iter().map(|model| model.name.as_str()).collect();
+            assert_eq!(
+                names,
+                ["parakeet-tdt-0.6b-v3-int8", spec.name, "parakeet-tdt-0.6b-v2-int8"]
+            );
+            assert!(matches!(models[1].status, ModelStatus::Available));
+        }
+
+        let models = engine.discover_models().await.unwrap();
+        assert!(models.iter().all(|model| model.name != PARAKEET_MLX_MODEL_NAME));
+        assert_eq!(
+            live_model_name(PARAKEET_MLX_MODEL_NAME),
+            crate::config::DEFAULT_PARAKEET_MODEL,
+        );
+        assert_eq!(live_model_name("parakeet-tdt-0.6b-v2-int8"), "parakeet-tdt-0.6b-v2-int8");
+        assert!(engine.load_model(PARAKEET_MLX_MODEL_NAME).await.is_err());
     }
 
     #[tokio::test]
