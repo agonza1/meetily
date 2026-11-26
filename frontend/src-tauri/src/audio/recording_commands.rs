@@ -880,6 +880,14 @@ async fn save_stopped_recording<R: Runtime>(
     (folder, name, audio)
 }
 
+fn should_prepare_mlx_final_transcript(config: Option<&crate::api::TranscriptConfig>) -> bool {
+    cfg!(all(target_os = "macos", target_arch = "aarch64"))
+        && config.is_some_and(|config| {
+            config.provider == "parakeet"
+                && config.model == crate::parakeet_engine::PARAKEET_MLX_MODEL_NAME
+        })
+}
+
 #[cfg(target_os = "macos")]
 async fn transcribe_final_recording<R: Runtime>(
     app: &AppHandle<R>,
@@ -1093,7 +1101,7 @@ async fn stop_recording_for_session<R: Runtime>(
     let live_segment_count = manager_for_cleanup.as_ref()
         .map_or(0, |manager| manager.get_transcript_segments().len() as u64);
     let provider = config.as_ref().map(|config| config.provider.as_str());
-    let saved_for_final_pass = if cfg!(target_os = "macos") && provider == Some("parakeet") {
+    let saved_for_final_pass = if should_prepare_mlx_final_transcript(config.as_ref()) {
         Some(save_stopped_recording(&app, manager_for_cleanup.as_mut()).await)
     } else {
         None
@@ -2458,6 +2466,27 @@ mod stop_admission_tests {
         task.abort();
         assert!(task.await.unwrap_err().is_cancelled());
         assert!(!stopping.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn final_pass_requires_explicit_mlx_selection_on_apple_silicon() {
+        let mut config = crate::api::TranscriptConfig {
+            provider: "parakeet".into(),
+            model: crate::parakeet_engine::PARAKEET_MLX_MODEL_NAME.into(),
+            api_key: None,
+        };
+        assert_eq!(
+            should_prepare_mlx_final_transcript(Some(&config)),
+            cfg!(all(target_os = "macos", target_arch = "aarch64")),
+        );
+        config.provider = "localWhisper".into();
+        assert!(!should_prepare_mlx_final_transcript(Some(&config)));
+        config.provider = "parakeet".into();
+        for model in [crate::config::DEFAULT_PARAKEET_MODEL, "parakeet-tdt-0.6b-v2-int8"] {
+            config.model = model.into();
+            assert!(!should_prepare_mlx_final_transcript(Some(&config)));
+        }
+        assert!(!should_prepare_mlx_final_transcript(None));
     }
 
     #[test]
